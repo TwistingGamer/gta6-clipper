@@ -30,7 +30,7 @@ def _check(r: requests.Response) -> dict:
     return data
 
 
-def post(item: dict) -> str:
+def post(item: dict) -> tuple[str, str]:
     base, user, token = _cfg()
     video = Path(item["output"])
     caption = f"{item['title']}\n\n{item['description']}"[:2200]
@@ -61,4 +61,10 @@ def post(item: dict) -> str:
 
     published = _check(requests.post(f"{base}/{user}/media_publish", timeout=60,
                                      data={"creation_id": cid, "access_token": token}))
-    return published["id"]
+    media_id = published["id"]
+    try:
+        link = _check(requests.get(f"{base}/{media_id}", timeout=30,
+                                   params={"fields": "permalink", "access_token": token})).get("permalink", "")
+    except Exception:
+        link = ""
+    return media_id, link

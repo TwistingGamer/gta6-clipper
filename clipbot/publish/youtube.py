@@ -29,7 +29,7 @@ def credentials(interactive: bool = False):
     return creds
 
 
-def post(item: dict) -> str:
+def post(item: dict) -> tuple[str, str]:
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
 
@@ -55,4 +55,4 @@ def post(item: dict) -> str:
     response = None
     while response is None:
         _, response = request.next_chunk()
-    return response["id"]
+    return response["id"], f"https://youtube.com/shorts/{response['id']}"

@@ -1,18 +1,12 @@
-"""Twitch Helix: live status, viewer-made clips, and opt-in stream capture."""
+"""Twitch Helix: live status and viewer-made clips (a strong highlight signal)."""
 from __future__ import annotations
 
-import logging
 import os
-import subprocess
 import time
 from datetime import datetime, timezone
 
 import requests
 
-from .config import RECORDINGS
-from .sources import Source
-
-LOG = logging.getLogger("clipbot.twitch")
 HELIX = "https://api.twitch.tv/helix"
 
 
@@ -78,43 +72,3 @@ class Twitch:
             made = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00")).timestamp()
             out.append((made - float(c.get("duration", 30)) / 2, int(c.get("view_count", 0))))
         return out
-
-
-def is_gta(stream: dict) -> bool:
-    game = (stream.get("game_name") or "").lower()
-    return "grand theft auto" in game or game.startswith("gta")
-
-
-def capture_segment(source: Source, seconds: int):
-    """Record one segment of a live stream with Streamlink.
-
-    Only for sources whose permission explicitly allows recording. Does not
-    bypass subscriber-only streams, DRM or any other access control.
-    """
-    ok, why = source.authorized()
-    if not ok or not source.allow_recording:
-        raise PermissionError(f"{source.login}: recording not permitted ({why if not ok else 'allow_recording is false'})")
-    out = RECORDINGS / f"{source.login}__{int(time.time())}.mp4"
-    producer = subprocess.Popen(
-        ["streamlink", "--stdout", "--twitch-disable-ads", f"https://www.twitch.tv/{source.login}", "best"],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-    )
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", "pipe:0", "-t", str(seconds),
-             "-c", "copy", "-movflags", "+faststart", str(out)],
-            stdin=producer.stdout, timeout=seconds + 90,
-        )
-        if result.returncode != 0 or not out.exists() or out.stat().st_size < 100_000:
-            out.unlink(missing_ok=True)
-            raise RuntimeError(f"Unable to capture stream for {source.login}")
-        return out
-    finally:
-        if producer.stdout:
-            producer.stdout.close()
-        producer.terminate()
-        try:
-            producer.wait(timeout=8)
-        except subprocess.TimeoutExpired:
-            producer.kill()
-            producer.wait()

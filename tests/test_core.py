@@ -7,7 +7,8 @@ from pathlib import Path
 
 from clipbot import chat, detect
 from clipbot.captions import ass_ts, overlay_ass, srt_time
-from clipbot.sources import Source, load_sources
+from clipbot.sources import Campaign, Input, hms, load_campaigns
+from clipbot.pipeline import package
 
 
 class TimeFormatTest(unittest.TestCase):
@@ -39,27 +40,54 @@ class WindowTest(unittest.TestCase):
         self.assertEqual(out[0], 0.0)
 
 
-class SourceTest(unittest.TestCase):
+class CampaignTest(unittest.TestCase):
     def test_requires_evidence(self):
-        self.assertFalse(Source("a", permission_type="campaign").authorized()[0])
+        self.assertFalse(Campaign("a", permission_type="campaign").authorized()[0])
 
     def test_expired(self):
-        s = Source("a", permission_type="written", evidence="dm", expires_on="2020-01-01")
-        self.assertIn("expired", s.authorized(date(2026, 1, 1))[1])
+        c = Campaign("a", permission_type="written", evidence="dm", expires_on="2020-01-01")
+        self.assertIn("expired", c.authorized(date(2026, 1, 1))[1])
 
     def test_inactive(self):
-        s = Source("a", permission_type="written", evidence="dm", active=False)
-        self.assertFalse(s.authorized()[0])
+        self.assertFalse(Campaign("a", permission_type="written", evidence="dm", active=False).authorized()[0])
 
     def test_ok(self):
-        s = Source("a", permission_type="campaign", evidence="https://x")
-        self.assertTrue(s.authorized()[0])
+        self.assertTrue(Campaign("a", permission_type="campaign", evidence="https://x").authorized()[0])
 
-    def test_example_file_is_inactive(self):
-        srcs = load_sources(Path(__file__).resolve().parents[1] / "sources.example.yaml")
-        self.assertIn("example_streamer", srcs)
-        self.assertFalse(srcs["example_streamer"].authorized()[0])
-        self.assertTrue(srcs["example_streamer"].ad_disclosure)
+    def test_example_file_all_inactive(self):
+        cs = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")
+        self.assertIn("expedia-ishowspeed", cs)
+        self.assertFalse(any(c.authorized()[0] for c in cs.values()))
+        self.assertFalse(any(c.problems() for c in cs.values()))
+        e = cs["expedia-ishowspeed"]
+        self.assertEqual(e.inputs[0].window, (9989.0, None))
+        self.assertFalse(e.ai_text_allowed)
+
+    def test_hms(self):
+        self.assertEqual(hms("2:46:29"), 9989)
+        self.assertIsNone(hms(""))
+
+    def test_post_hours_wrap(self):
+        c = Campaign("a", post_hours="20-2")
+        self.assertTrue(c.can_post_now(23) and c.can_post_now(1))
+        self.assertFalse(c.can_post_now(12))
+
+    def test_priority_prefers_fixed_footage_and_open_budget(self):
+        fixed = Campaign("f", inputs=[Input("youtube_video", "u")], cpm=1, max_payout=500)
+        live = Campaign("l", inputs=[Input("twitch", "x")], cpm=1, max_payout=500)
+        spent = Campaign("s", inputs=[Input("youtube_video", "u")], cpm=5, max_payout=500, budget_total=100, budget_used=100)
+        self.assertGreater(fixed.priority(), live.priority())
+        self.assertEqual(spent.priority(), 0)
+
+    def test_package_rules(self):
+        c = Campaign("e", name="Expedia x Speed", ai_text_allowed=False, title_template="Speed's Expedia trip",
+                     required_words=["Expedia"], required_hashtags=["#IShowSpeed"], ad_disclosure=True, sponsor="Expedia")
+        title, desc, tags = package(c, {"title": "AI TITLE", "description": "ai", "hook": "x", "hashtags": ["#AI"]})
+        self.assertNotIn("AI", title)
+        self.assertTrue(title.endswith("#ad"))
+        self.assertIn("Expedia", desc)
+        self.assertIn("#IShowSpeed", tags)
+        self.assertTrue(desc.startswith("#ad Paid partnership with Expedia"))
 
 
 class ChatTest(unittest.TestCase):

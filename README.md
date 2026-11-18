@@ -1,89 +1,106 @@
-# GTA 6 Clipbot — 24/7 MVP
+# Campaign Clipbot
 
-A working **local-first prototype** for creating captioned vertical highlight clips from content you own or are authorized to reuse. Watches Twitch live state, optionally records authorized streams, detects loud/energetic moments, transcribes dialogue using faster-whisper, renders 1080x1920 clips with FFmpeg, queues metadata, and optionally uploads to YouTube using OAuth.
+Clips streams and videos for **paid clipping campaigns** (Content Rewards / Whop, Reach Clipping, etc.),
+starting with **GTA 6 launch streams**. It:
 
-**This is not a monetization guarantee.** The highlight detector is a simple audio-energy heuristic (not yet a multimodal understanding model). It can pick loud but uninteresting moments, and the generated clips need additional original commentary/editing before they may qualify for monetization. **Only record and repost where streamer permission, game publisher policies and platform rules allow it.**
+1. **Brings in approved footage**: records campaign streamers live on Twitch, Kick or YouTube (only while they're playing GTA, if you want), or downloads the approved YouTube video or channel uploads, or picks up a folder of footage you downloaded.
+2. **Finds the best moments**: Twitch chat spikes and hype emotes, clips viewers already made, loudness peaks, then an AI judge that checks each moment against the campaign's rules.
+3. **Makes a vertical clip**: 1080x1920, blurred fill, burned-in captions, a hook line, a creator credit and an `#ad` label when needed.
+4. **Queues it for your OK**, then posts it on schedule. That means either a ping to your phone with the file and caption ready, or a direct upload through the official API once your API apps are approved.
+5. **Tracks the links** so you can submit them to the campaign. Some campaigns require that within 30 minutes of posting.
 
-## 1. Install (Windows PowerShell)
+Started from a ChatGPT-built MVP. Kept its FFmpeg pipeline and permission-first design. Fixed captions rendering off-screen and the Whisper model reloading for every clip. Added the rest.
 
-Install **Python 3.11**, **FFmpeg** (both ffmpeg and ffprobe in PATH), and optionally **Streamlink** (only if capturing an approved live stream). In this folder:
+> **Only clip footage a campaign or creator lets you use.** A campaign is ignored unless `campaigns.yaml`
+> marks it active with permission evidence (its rules-page link). Strikes on Reach campaigns are permanent,
+> so keep clip review on.
+
+## Setup (Windows)
+
+Install **Python 3.11+**, **FFmpeg** (with libass, which the gyan.dev "full" build has) and **Streamlink**, then:
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements.txt yt-dlp
 Copy-Item .env.example .env
+Copy-Item campaigns.example.yaml campaigns.yaml
 ```
 
-Edit `.env` and change `AUTHORIZED_SOURCE=true` **only after permission is confirmed**. Without permission, use only your own test recordings. To test, place an MP4 of your own gameplay in `recordings/` and run:
+Then:
+
+* **campaigns.yaml**: for each campaign you've joined, paste the rules link into `permission.evidence`, check the `CHECK` items against the rules page, and set `active: true`.
+* **.env**: add your Twitch app keys (dev.twitch.tv/console, a free "Application"). They're used for live status and viewer clips. Optionally add an `ANTHROPIC_API_KEY` for the AI judge and titles (without one, every candidate is kept with template titles), and a Discord `NOTIFY_WEBHOOK_URL` for phone pings.
+
+Check it:
 
 ```powershell
-python -m clipbot scan
-python -m clipbot status
+python -m clipbot campaigns     # which campaigns are active, priority, posting limits
+python -m unittest discover -s tests
 ```
 
-Finished MP4 and SRT files go to `output/`, metadata to `queue/`. First run downloads the Whisper speech recognition model. FFmpeg must have the `subtitles` filter enabled (libass).
-
-## 2. Continuous operation
+Run it on a PC that stays on (sleep disabled), or a Windows Task Scheduler "at startup" task:
 
 ```powershell
 python -m clipbot run
 ```
 
-`run` checks the folder every 60 seconds and processes finished video segments. Run it via a Windows scheduled task / systemd on a machine that stays powered on. There is no need to open a browser. For 24/7 operation a VPS needs adequate CPU, disk and bandwidth; captioning and encoding can be expensive.
-
-### Monitor Twitch
-
-Register your app at https://dev.twitch.tv/console/apps and set the `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and comma-separated `STREAMERS` in `.env`. Test with:
+## Daily use
 
 ```powershell
-python -m clipbot check-twitch
+python -m clipbot review                     # clips waiting for you (files are in output\)
+python -m clipbot approve <ID>               # or: reject <ID>
+#   approved clips are staged in output\ready\<platform>\ (video + caption .txt) and you get a ping
+python -m clipbot posted <ID> tiktok <link>  # after you post it; reminds you to submit the link
+python -m clipbot report                     # today's links per campaign, for submitting
 ```
 
-Monitoring Twitch does NOT imply recording permission. To record approved streams, install Streamlink CLI and explicitly set `CAPTURE_STREAMS=true` and `AUTHORIZED_SOURCE=true`; then `run` will capture ~5-minute chunks with Streamlink and FFmpeg. The recording function is a **prototype**, not guaranteed to work on every stream. It does not defeat access controls or DRM. Capturing several high-bitrate streams is bandwidth/CPU intensive. Stop capture by stopping the daemon. Capture threads may take up to one segment to notice that a streamer went offline.
+**Warm-up:** with `ACCOUNTS_STARTED` set, each platform gets 1 post a day in week 1, 2 in week 2, and so on, up to `POSTS_PER_DAY`.
+Brand-new accounts that post a lot right away tend to get throttled.
 
-## 3. YouTube Shorts uploads
+**Priority:** when several campaigns have clips ready, the easiest, best-paying one goes first.
+Fixed footage beats live streams, and higher CPM, a higher max payout and remaining budget all count.
+Update `budget.used` from the dashboard now and then. A campaign whose budget is used up is skipped.
 
-1. Create a Google Cloud project, enable **YouTube Data API v3**, configure the OAuth consent screen and create an **OAuth Desktop** client. Save the downloaded JSON as `client_secrets.json` in the project root (never commit).
-2. First upload manually using `python -m clipbot status` to find a clip ID, then `python -m clipbot upload-youtube YOUR_CLIP_ID --confirm`. The OAuth login opens a browser.
-3. Uploads default to `private`. Confirm content rights and originality, then optionally set `YOUTUBE_PRIVACY=public` (or `unlisted`).
-4. For ongoing uploads, set `AUTO_UPLOAD_YOUTUBE=true`. Uploads are limited by `UPLOADS_PER_DAY`, with an interval between posts. New accounts and unverified API projects may encounter publishing restrictions; review the current YouTube API docs.
+## Adding a campaign
 
-**Do not enable auto-upload until you trust your clipping, permissions, OAuth and quality review process.**
+Copy any block in `campaigns.yaml`. Fields:
 
-## 4. TikTok / Instagram
+| field | meaning |
+|---|---|
+| `inputs` | `twitch` / `kick` / `youtube_live` (record live), `youtube_video` (with optional `start_at`/`end_at`), `youtube_channel` (newest uploads), `folder` |
+| `platforms` | where it pays: `tiktok`, `instagram`, `youtube`, `x` |
+| `payout` / `budget` | CPM, min/max payout, budget total/used (used for priority) |
+| `game_filter` | only record while the stream category contains this (e.g. `grand theft auto`) |
+| `required_hashtags`, `required_mentions`, `required_words` | always added to captions |
+| `watermark`, `credit` | on-screen text for the whole clip |
+| `ad_disclosure`, `sponsor` | `#ad` on screen + caption, plus YouTube/TikTok paid-promotion labels |
+| `ai_text_allowed`, `title_template` | `false` if the campaign bans AI content: template text only |
+| `content_rule` | extra rule the AI judge enforces (e.g. "at least 2 Core members on screen") |
+| `require_review`, `clip_preapproval` | you approve every clip / the campaign approves each clip too |
+| `post_hours`, `submit_within_minutes` | only post while you're awake to submit links in time |
+| `bio_link` | link the campaign needs in your profile bio (set it by hand; shown in `report`) |
 
-Not implemented. Their official posting workflows require creator authorizations, and TikTok Direct Post requires an app audit to lift visibility restrictions. We deliberately do not use browser bots or unofficial private upload endpoints.
+## Posting through the APIs (later)
 
-## 5. Source layout
+All three start in **manual** mode, because brand-new API apps can only post privately:
 
-- `clipbot/core.py`: scoring, Whisper captions, FFmpeg composition, SQLite & queue
-- `clipbot/twitch.py`: Twitch Helix monitoring and opt-in Streamlink capture
-- `clipbot/youtube.py`: OAuth upload with daily limit
-- `clipbot/__main__.py`: CLI and continuously running daemon
-- `tests/`: basic tests
+* **YouTube**: Google Cloud project, enable YouTube Data API v3, create an OAuth "Desktop" client and save it as `client_secrets.json`, then run `python -m clipbot auth youtube`. Uploads from unverified projects stay private until Google's audit passes.
+* **TikTok**: developer app with Content Posting API (Direct Post). Set `TIKTOK_CLIENT_KEY`/`SECRET`/`REDIRECT_URI`, then run `python -m clipbot auth tiktok`. Posts are forced private until TikTok audits the app.
+* **Instagram**: Professional account and an app with `instagram_content_publish`. Set `IG_USER_ID` and a long-lived `IG_ACCESS_TOKEN`, which expires about every 60 days.
+* **X**: manual only for now. Video posting through the X API is a paid plan; check the price before buying.
 
-## 6. Next steps for a production business + portfolio
+When an app is approved, set `POST_MODE_<PLATFORM>=api` in `.env`.
 
-- Add creator-permission database with explicit approval/revocation.
-- Upgrade highlight ranking to Twitch chat spikes, speech sentiment and visual gaming-event detection.
-- Add facecam-aware crop, dynamic text hooks and original commentary / analysis templates.
-- Add human review dashboard, quality metrics, retention data, duplicate detection across creators and crash-safe concurrent task queue.
-- Use Docker + PostgreSQL + workers and persistent object storage; rate-limit platform uploads.
-- Add TikTok/Instagram only via approved, documented platform APIs.
-- Track content licenses, revenue and operating costs; comply with copyright and reused-content monetization rules.
+## Layout
 
-## Troubleshooting
-
-- `ffmpeg not found`: add FFmpeg bin directory to PATH and restart PowerShell.
-- `No such filter subtitles`: install an FFmpeg build with libass.
-- `Unauthorized source`: do not bypass; only use material you have permission to record/repost.
-- `No clips`: try lowering `MIN_SCORE` to `0.08`; quiet videos have low RMS energy.
-- `Cannot load whisper model`: confirm internet is available for first download, or use a cached model.
-- `YouTube permissions`: ensure OAuth has `youtube.upload` permission, verify consent screen access, and check API policies.
-
-## Tests
-
-```powershell
-python -m unittest discover -s tests -v
+```
+clipbot/sources.py    campaigns.yaml model: permission, inputs, rules, priority
+clipbot/fetch.py      YouTube downloads (yt-dlp), live recording (Streamlink)
+clipbot/twitch.py     Twitch live status + viewer clips      clipbot/chat.py  chat logger + spike scores
+clipbot/detect.py     candidate windows from all signals     clipbot/ai.py    AI judge (Claude)
+clipbot/captions.py   Whisper captions + hook/credit/#ad overlay
+clipbot/render.py     FFmpeg vertical render                 clipbot/pipeline.py  footage -> clips
+clipbot/publish/      scheduler, manual staging, YouTube/TikTok/Instagram uploaders
+clipbot/db.py         SQLite (data/clipbot.db), JSON mirror in queue/
 ```

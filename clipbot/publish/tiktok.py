@@ -85,7 +85,7 @@ def _api(path: str, token: str, body: dict) -> dict:
     return data.get("data", {})
 
 
-def post(item: dict) -> str:
+def post(item: dict) -> tuple[str, str]:
     token = access_token()
     creator = _api("post/publish/creator_info/query/", token, {})
     options = creator.get("privacy_level_options", ["SELF_ONLY"])
@@ -127,8 +127,10 @@ def post(item: dict) -> str:
         state = status.get("status")
         if state == "PUBLISH_COMPLETE":
             ids = status.get("publicaly_available_post_id") or status.get("publicly_available_post_id") or []
-            return str(ids[0]) if ids else publish_id
+            post_id = str(ids[0]) if ids else publish_id
+            user = os.getenv("TIKTOK_USERNAME", "").lstrip("@")
+            return post_id, (f"https://www.tiktok.com/@{user}/video/{post_id}" if ids and user else "")
         if state == "FAILED":
             raise RuntimeError(f"TikTok publish failed: {status.get('fail_reason')}")
         time.sleep(10)
-    return publish_id  # still processing; TikTok will finish on its side
+    return publish_id, ""  # still processing; TikTok will finish on its side

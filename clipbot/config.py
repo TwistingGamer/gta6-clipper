@@ -18,7 +18,7 @@ for _p in (DATA, CHAT, RECORDINGS, OUTPUT, QUEUE):
     _p.mkdir(exist_ok=True)
 
 DB = DATA / "clipbot.db"
-SOURCES_FILE = Path(os.getenv("SOURCES_FILE", ROOT / "sources.yaml"))
+SOURCES_FILE = Path(os.getenv("CAMPAIGNS_FILE", ROOT / "campaigns.yaml"))
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".ts")
 
 

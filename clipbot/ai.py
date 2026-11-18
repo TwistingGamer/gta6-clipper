@@ -29,29 +29,31 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
-SYSTEM = """You pick and package short-form clips from Grand Theft Auto livestreams for YouTube Shorts, TikTok and Instagram Reels.
-You get still frames from a ~30-60 second window, its transcript, and the signals that flagged it.
+SYSTEM = """You pick and package short-form clips from streams and videos for YouTube Shorts, TikTok and Instagram Reels.
+The clipper is part of an official, paid clipping campaign; the campaign's rules are given with each request and must be followed.
+You get still frames from a ~15-60 second window, its transcript, and the signals that flagged it.
 Keep a moment only if a viewer with no context would find it funny, shocking, impressive or dramatic within 3 seconds.
 Reject dead air, menus, loading screens, AFK, ad breaks, 'be right back' screens, and anything showing personal info.
 Never invent events that the frames or transcript don't support. Titles must be accurate.
-Do not describe or speculate about unreleased/leaked game content.
-Write in the style of the series: gta6 = launch-era GTA 6 moments; gta5_last_ride = nostalgic 'last days of GTA 5' moments; hype = GTA 6 launch excitement."""
+If the campaign has a content rule and the clip doesn't clearly meet it, set keep=false.
+Never portray the creator or sponsor negatively and never create a false narrative.
+Do not describe or speculate about unreleased/leaked game content."""
 
 
-def _fallback(streamer: str, series: str) -> dict:
-    label = {"gta5_last_ride": "GTA 5", "hype": "GTA 6"}.get(series, "GTA 6")
+def template_text(campaign) -> dict:
+    """Plain, human-style packaging used without an AI key or when a campaign bans AI text."""
+    title = campaign.title_template or f"{campaign.display} moment"
     return {
-        "keep": True, "score": 5, "why": "no AI key configured; heuristic only",
-        "title": f"{streamer} in {label} 😂",
-        "hook": "WAIT FOR IT...",
-        "description": f"{streamer} {label} moment.",
-        "hashtags": ["#GTA6" if label == "GTA 6" else "#GTA5", "#GTA", "#Shorts"],
+        "keep": True, "score": 5, "why": "heuristic only (no AI judge)",
+        "title": title, "hook": "",
+        "description": title + ".",
+        "hashtags": [],
     }
 
 
-def judge(frames: list[Path], transcript: str, streamer: str, series: str, signals: dict) -> dict:
+def judge(frames: list[Path], transcript: str, campaign, signals: dict) -> dict:
     if not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("ANTHROPIC_AUTH_TOKEN"):
-        return _fallback(streamer, series)
+        return template_text(campaign)
 
     import anthropic
 
@@ -65,7 +67,12 @@ def judge(frames: list[Path], transcript: str, streamer: str, series: str, signa
         })
     content.append({
         "type": "text",
-        "text": (f"Streamer: {streamer}\nSeries: {series}\nSignals (0-1): {json.dumps(signals)}\n"
+        "text": (f"Campaign: {campaign.display}\n"
+                 f"Content rule: {campaign.content_rule or '(none)'}\n"
+                 f"Must mention: {', '.join(campaign.required_words) or '(nothing)'}\n"
+                 f"Language: {campaign.language}\n"
+                 f"Series/theme: {campaign.series or '(none)'}\n"
+                 f"Signals (0-1): {json.dumps(signals)}\n"
                  f"Transcript:\n{transcript or '(no speech detected)'}"),
     })
     try:
@@ -82,16 +89,16 @@ def judge(frames: list[Path], transcript: str, streamer: str, series: str, signa
         )
     except anthropic.APIStatusError as exc:
         LOG.error("Claude API error %s: %s", exc.status_code, exc.message)
-        return _fallback(streamer, series) | {"keep": False, "why": f"AI error {exc.status_code}"}
+        return template_text(campaign) | {"keep": False, "why": f"AI error {exc.status_code}"}
     except anthropic.APIConnectionError as exc:
         LOG.error("Claude API unreachable: %s", exc)
-        return _fallback(streamer, series) | {"keep": False, "why": "AI unreachable"}
+        return template_text(campaign) | {"keep": False, "why": "AI unreachable"}
 
     if resp.stop_reason == "refusal":
-        return _fallback(streamer, series) | {"keep": False, "why": "AI declined this clip"}
+        return template_text(campaign) | {"keep": False, "why": "AI declined this clip"}
     text = "".join(b.text for b in resp.content if b.type == "text")
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         LOG.error("AI returned non-JSON output (stop_reason=%s)", resp.stop_reason)
-        return _fallback(streamer, series) | {"keep": False, "why": "unparseable AI output"}
+        return template_text(campaign) | {"keep": False, "why": "unparseable AI output"}

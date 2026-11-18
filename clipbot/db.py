@@ -19,6 +19,7 @@ CLIP_COLUMNS = {
     "uploaded_at": "TEXT",     # legacy column from the MVP (YouTube only)
     "youtube_id": "TEXT",      # legacy column from the MVP
     "streamer": "TEXT",
+    "campaign": "TEXT",
     "series": "TEXT",
     "description": "TEXT",
     "hashtags": "TEXT",        # JSON list
@@ -57,8 +58,12 @@ def init_db():
         con.execute("UPDATE clips SET status='pending_review' WHERE status='ready'")
         con.execute(
             "CREATE TABLE IF NOT EXISTS posts (clip_id TEXT, platform TEXT, remote_id TEXT, status TEXT, "
-            "error TEXT, posted_at TEXT, PRIMARY KEY (clip_id, platform))"
+            "error TEXT, posted_at TEXT, url TEXT, PRIMARY KEY (clip_id, platform))"
         )
+        if "url" not in {r["name"] for r in con.execute("PRAGMA table_info(posts)")}:
+            con.execute("ALTER TABLE posts ADD COLUMN url TEXT")
+        con.execute("CREATE TABLE IF NOT EXISTS fetched (campaign TEXT, key TEXT, path TEXT, fetched_at TEXT, "
+                    "PRIMARY KEY (campaign, key))")
 
 
 def insert_clip(item: dict):
@@ -92,7 +97,7 @@ def set_status(clip_id: str, status: str):
 
 
 def list_clips(status: str | None = None, limit: int = 50) -> list[dict]:
-    q = "SELECT id, streamer, series, score, status, title, output FROM clips"
+    q = "SELECT id, campaign, score, status, title, output FROM clips"
     args: tuple = ()
     if status:
         q += " WHERE status=?"
@@ -106,35 +111,44 @@ def list_clips(status: str | None = None, limit: int = 50) -> list[dict]:
     return rows
 
 
-def record_post(clip_id: str, platform: str, status: str, remote_id: str | None = None, error: str | None = None):
+def record_post(clip_id: str, platform: str, status: str, remote_id: str | None = None,
+                error: str | None = None, url: str | None = None):
     with connect() as con:
         con.execute(
-            "INSERT OR REPLACE INTO posts VALUES (?,?,?,?,?,?)",
-            (clip_id, platform, remote_id, status, error, now_iso()),
+            "INSERT OR REPLACE INTO posts (clip_id, platform, remote_id, status, error, posted_at, url) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (clip_id, platform, remote_id, status, error, now_iso(), url),
         )
     write_queue_file(clip_id)
 
 
-def next_for_platform(platform: str) -> dict | None:
-    """Highest-scoring approved clip not yet posted (or failed) on this platform."""
+def unposted_for_platform(platform: str) -> list[dict]:
+    """Approved clips not yet posted on this platform, best first."""
     with connect() as con:
-        row = con.execute(
+        rows = con.execute(
             "SELECT id FROM clips WHERE status='approved' AND id NOT IN "
-            "(SELECT clip_id FROM posts WHERE platform=? AND status IN ('posted','processing')) "
-            "ORDER BY score DESC, created_at ASC LIMIT 1",
+            "(SELECT clip_id FROM posts WHERE platform=? AND status IN ('posted','processing','staged')) "
+            "ORDER BY score DESC, created_at ASC LIMIT 200",
             (platform,),
-        ).fetchone()
-    return get_clip(row["id"]) if row else None
+        ).fetchall()
+    return [get_clip(r["id"]) for r in rows]
+
+
+def posts_between(since_iso: str) -> list[dict]:
+    with connect() as con:
+        return [dict(r) for r in con.execute(
+            "SELECT p.*, c.campaign, c.title, c.output FROM posts p JOIN clips c ON c.id=p.clip_id "
+            "WHERE p.status='posted' AND p.posted_at>=? ORDER BY p.posted_at", (since_iso,))]
 
 
 def posts_since(platform: str, since_iso: str) -> tuple[int, str | None]:
     with connect() as con:
         count = con.execute(
-            "SELECT COUNT(*) FROM posts WHERE platform=? AND status='posted' AND posted_at>=?",
+            "SELECT COUNT(*) FROM posts WHERE platform=? AND status IN ('posted','staged') AND posted_at>=?",
             (platform, since_iso),
         ).fetchone()[0]
         latest = con.execute(
-            "SELECT MAX(posted_at) FROM posts WHERE platform=? AND status='posted'", (platform,)
+            "SELECT MAX(posted_at) FROM posts WHERE platform=? AND status IN ('posted','staged')", (platform,)
         ).fetchone()[0]
     return count, latest
 

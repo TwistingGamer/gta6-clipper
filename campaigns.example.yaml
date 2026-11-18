@@ -1,0 +1,169 @@
+# Copy to campaigns.yaml (it stays out of git) and keep it up to date.
+#
+# A campaign is only used when ALL of these are true:
+#   active: true, permission.type is campaign|written|own, permission.evidence is filled in,
+#   and expires_on (if set) hasn't passed.
+# Set active: true only after you've actually joined the campaign and read its rules page.
+# Values marked CHECK came from the campaign listing; confirm them on the rules page,
+# which is the source of truth (rules change, budgets run out).
+#
+# inputs[].type:
+#   twitch / kick       live channel (target = login or URL). Recorded only if allow_recording: true.
+#   youtube_video       one approved video (target = URL)
+#   youtube_channel     newest uploads from an approved channel (target = channel URL)
+#   folder              local folder of approved footage, e.g. a downloaded/synced Google Drive folder
+# platforms: where clips may be posted: tiktok, instagram, youtube, x (x = manual for now)
+
+defaults: &defaults
+  active: false
+  ad_disclosure: false
+  ai_text_allowed: true
+  clip_preapproval: false
+  min_clip_seconds: 15
+  max_clip_seconds: 60
+
+campaigns:
+  # ===================== GTA 6 (launch 2026-11-19) — your main focus =====================
+  # One GTA clips account per platform covers all of these. Fill in the rules-page link and
+  # flip active: true for each campaign once you've joined it. game_filter makes the bot
+  # record only while the stream category is GTA.
+
+  - id: kai-cenat-gta
+    name: Kai Cenat (GTA)
+    <<: *defaults
+    permission: {type: campaign, evidence: ""}   # TODO: Content Rewards campaign link once joined
+    inputs:
+      - {type: twitch, target: kaicenat}
+    game_filter: grand theft auto
+    allow_recording: true          # CHECK campaign rules: live stream as source
+    platforms: [tiktok, instagram, youtube]
+    series: gta6
+
+  - id: lacy-gta
+    name: Lacy (GTA)
+    <<: *defaults
+    permission: {type: campaign, evidence: ""}   # TODO
+    inputs:
+      - {type: twitch, target: lacy}             # CHECK login
+    game_filter: grand theft auto
+    allow_recording: true
+    platforms: [tiktok, instagram, youtube]
+    series: gta6
+
+  - id: clix-gta
+    name: Clix (GTA)
+    <<: *defaults
+    permission: {type: campaign, evidence: ""}   # TODO
+    inputs:
+      - {type: twitch, target: clix}
+    game_filter: grand theft auto
+    allow_recording: true
+    ai_text_allowed: false         # campaign bans AI videos: plain template text only
+    title_template: "Clix in GTA 6"
+    platforms: [tiktok, instagram, youtube]
+    series: gta6
+
+  - id: jason
+    name: Jason
+    <<: *defaults
+    permission: {type: campaign, evidence: ""}   # TODO: paste the rules page URL
+    inputs:
+      - {type: twitch, target: jasontheween}
+    game_filter: grand theft auto
+    allow_recording: true          # CHECK on rules page
+    platforms: [tiktok, instagram, youtube]
+    series: gta6
+
+  # ===================== Other campaigns (not GTA niche) =====================
+  - id: core-pool
+    name: CORE $20K Pool
+    <<: *defaults
+    permission:
+      type: campaign
+      evidence: https://reachclipping.com/CORE
+      joined_on:            # fill in when you join
+    inputs:
+      - {type: youtube_channel, target: "https://www.youtube.com/@createownruneverything", max_videos: 5}
+      # Their TikTok/Instagram/X posts are also approved sources: save them into this folder by hand.
+      - {type: folder, target: "recordings/core-pool/manual"}
+    platforms: [tiktok, instagram, youtube, x]
+    content_rule: "At least 2 Core members must be clearly on screen."
+    notes: "Pool campaign, MVR 2M total views across approved submissions. CHECK hashtags/tags on rules page."
+
+  - id: core-yt-pool
+    name: CORE YouTube $5K Pool
+    <<: *defaults
+    permission: {type: campaign, evidence: https://reachclipping.com/COREYT}
+    inputs:
+      - {type: youtube_channel, target: "https://www.youtube.com/@createownruneverything", max_videos: 5}
+    platforms: [tiktok, instagram, youtube, x]
+    notes: "Pool campaign, MVR 700K total views. CHECK rules page."
+
+  - id: tjr
+    name: TJR
+    <<: *defaults
+    permission: {type: campaign, evidence: https://reachclipping.com/TJR}
+    inputs:
+      - {type: kick, target: tjr}
+    allow_recording: true          # CHECK: the campaign names the Kick stream as the source
+    platforms: [tiktok, instagram, youtube]
+    payout: {cpm: 0.75, min: 3.75, max: 1000}
+
+  - id: gumbo
+    name: Gumbo
+    <<: *defaults
+    permission: {type: campaign, evidence: ""}   # TODO: paste the rules page URL
+    inputs:
+      - {type: kick, target: TODO_kick_login}
+    allow_recording: true          # CHECK on rules page
+    platforms: [tiktok, instagram, youtube]
+
+  - id: social-media-justice
+    name: Social Media Justice
+    <<: *defaults
+    permission: {type: campaign, evidence: https://reachclipping.com/SocialMediaJustice}
+    inputs:
+      - {type: youtube_video, target: "https://www.youtube.com/watch?v=6uSskUaDL90"}
+    platforms: [tiktok, instagram, youtube]
+    payout: {cpm: 2, min: 10, max: 750}
+    bio_link: https://socialmediajusticereview.com/
+    notes: "US-based creators only."
+
+  - id: marlon
+    name: Marlon $5K
+    <<: *defaults
+    permission: {type: campaign, evidence: https://reachclipping.com/Marlon}
+    inputs:
+      # Download the approved footage from the campaign's Google Drive folder into here.
+      # (Keep the Drive password out of this file and out of git.)
+      - {type: folder, target: "recordings/marlon/drive"}
+    platforms: [tiktok, instagram]
+    payout: {cpm: 2.5, min: 25, max: 300}
+
+  # Rules read 2026-11-18. Needs a travel/streamer-niche account, so it doesn't fit a GTA page.
+  - id: expedia-ishowspeed
+    name: Expedia x IShowSpeed
+    <<: *defaults
+    permission: {type: campaign, evidence: https://reachclipping.com/Expedia-IShowSpeed}
+    inputs:
+      # Only the Expedia segment of the 11.6.26 stream, 2:46:29 to the end, is approved.
+      - {type: youtube_video, target: "https://www.youtube.com/live/Kyv61l2vF6M", start_at: "2:46:29"}
+    platforms: [tiktok, instagram, youtube]   # TikTok, Reels, Shorts only
+    payout: {cpm: 1, min: 10, max: 500}       # MVR 10,000 views; payout after approval
+    budget: {total: 8000, used: 535, checked: 2026-11-18}
+    sponsor: Expedia
+    ai_text_allowed: false         # "AI-generated content is prohibited"
+    title_template: "IShowSpeed's Expedia trip"   # edit per clip: must name the destination accurately
+    required_words: [Expedia]      # "the video must mention Expedia"
+    required_hashtags: ["#IShowSpeed", "#Expedia"]
+    credit: ""                     # no extra on-screen text/logos beyond Expedia's
+    ad_disclosure: true            # rules don't say, but paid brand promotion needs disclosure (FTC)
+    require_review: true           # one strike = permanent ban from all Reach campaigns
+    post_hours: "9-22"             # links must be submitted in Content Rewards within 30 min
+    submit_within_minutes: 30
+    content_rule: >-
+      Expedia must be a major focus. Never portray IShowSpeed or Expedia negatively,
+      no negative false narratives, nothing NSFW. English only.
+    notes: >-
+      Account must be streamer/travel niche with 50%+ audience in US/CA/AU/UK/NZ.
+      Verify Whop (Settings > Connected Accounts). One strike = removed from every Reach campaign.
