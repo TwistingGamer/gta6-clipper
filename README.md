@@ -35,7 +35,6 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # once, if Activate.ps1 is
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 Copy-Item .env.example .env
-Copy-Item campaigns.example.yaml campaigns.yaml
 notepad .env
 ```
 
@@ -46,7 +45,7 @@ Every time you open a new PowerShell window later: `cd D:\campaign-clipbot` then
 
 Then:
 
-* **campaigns.yaml**: for each campaign you've joined, paste the rules link into `permission.evidence`, check the `CHECK` items against the rules page, and set `active: true`.
+* **Campaigns**: switch on each campaign you've joined, for example `python -m clipbot enable core-pool --joined 2026-11-18`. Switch one off with `python -m clipbot disable core-pool`. You never need to edit YAML: the rules live in `campaigns.example.yaml` and `git pull` updates them. Your own settings go in `campaigns.yaml`, which is out of git. An old full copy of `campaigns.yaml` is converted automatically, and the original is kept as `campaigns.yaml.bak`.
 * **.env**: add your Twitch app keys (dev.twitch.tv/console, a free "Application"). They're used for live status and viewer clips. Optionally add an `ANTHROPIC_API_KEY` for the AI judge and titles (without one, every candidate is kept with template titles), and a Discord `NOTIFY_WEBHOOK_URL` for phone pings.
 
 Check it:
@@ -77,11 +76,11 @@ Brand-new accounts that post a lot right away tend to get throttled.
 
 **Priority:** when several campaigns have clips ready, the easiest, best-paying one goes first.
 Fixed footage beats live streams, and higher CPM, a higher max payout and remaining budget all count.
-Update `budget.used` from the dashboard now and then. A campaign whose budget is used up is skipped.
+Update the budget used from the dashboard now and then: `python -m clipbot set <id> budget.used 1200`. A campaign whose budget is used up is skipped.
 
 ## Adding a campaign
 
-Copy any block in `campaigns.yaml`. Fields:
+New campaigns go in `campaigns.example.yaml` (ask Claude to add them from the rules page). To tweak one field for yourself: `python -m clipbot set <id> <field> <value>`, for example `set expedia-ishowspeed budget.used 1200`. Fields:
 
 | field | meaning |
 |---|---|

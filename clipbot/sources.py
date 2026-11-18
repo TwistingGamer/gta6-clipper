@@ -10,6 +10,7 @@ permission evidence.
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -17,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from .config import RECORDINGS, SOURCES_FILE
+from .config import RECORDINGS, ROOT, SOURCES_FILE
 
 PERMISSION_TYPES = ("campaign", "written", "own")
 LIVE_TYPES = ("twitch", "kick", "youtube_live")
@@ -230,12 +231,97 @@ def _campaign(entry: dict) -> Campaign:
     )
 
 
-def load_campaigns(path: Path | None = None) -> dict[str, Campaign]:
+# ---------------------------------------------------------------------------
+# Two files:
+#   campaigns.example.yaml  the campaign definitions and rules (in git; `git pull` updates them)
+#   campaigns.yaml          YOUR settings only, per campaign id: active, joined date, budget used,
+#                           plus any field you want to override. Written by `clipbot enable/disable/set`.
+# Custom campaigns can also be defined in full in campaigns.yaml (give them `inputs`).
+# ---------------------------------------------------------------------------
+
+EXAMPLE_FILE = Path(os.getenv("CAMPAIGNS_EXAMPLE", ROOT / "campaigns.example.yaml"))
+STATE_FIELDS = ("active",)
+STATE_PERMISSION_FIELDS = ("joined_on",)
+
+
+def _merge(base: dict, over: dict) -> dict:
+    out = dict(base)
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def _read(path: Path) -> dict:
+    return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}) if path.exists() else {}
+
+
+def is_legacy(raw: dict) -> bool:
+    """Old style: a full copy of the example file (top-level `campaigns:` list)."""
+    return isinstance(raw.get("campaigns"), list)
+
+
+def legacy_to_settings(raw: dict) -> dict:
+    """Keep only what the person set (active, joined date, filled-in evidence, budget used)
+    from an old full copy, so the rules come from the current example."""
+    out: dict = {}
+    base = {e["id"]: e for e in (_read(EXAMPLE_FILE).get("campaigns") or [])}
+    for e in raw.get("campaigns") or []:
+        cid = str(e.get("id", "")).lower()
+        mine: dict = {}
+        if e.get("active"):
+            mine["active"] = True
+        perm = e.get("permission") or {}
+        bperm = (base.get(cid) or {}).get("permission") or {}
+        p = {}
+        if perm.get("joined_on"):
+            p["joined_on"] = str(perm["joined_on"])
+        if perm.get("evidence") and not bperm.get("evidence"):
+            p["evidence"] = perm["evidence"]
+        if p:
+            mine["permission"] = p
+        if (e.get("budget") or {}).get("used"):
+            mine["budget"] = {"used": e["budget"]["used"]}
+        if cid not in base:
+            mine = e  # a campaign they added themselves: keep it whole
+        if mine:
+            out[cid] = mine
+    return out
+
+
+def read_settings(path: Path | None = None) -> dict:
+    raw = _read(path or SOURCES_FILE)
+    if is_legacy(raw):
+        return legacy_to_settings(raw)
+    return {str(k).lower(): (v or {}) for k, v in raw.items() if isinstance(v, dict) or v is None}
+
+
+def write_settings(settings: dict, path: Path | None = None):
     path = path or SOURCES_FILE
-    if not path.exists():
-        return {}
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return {c.id: c for c in (_campaign(e) for e in raw.get("campaigns", []) or [])}
+    if path.exists() and is_legacy(_read(path)):
+        path.replace(path.with_suffix(".yaml.bak"))  # keep the old full copy, just in case
+    header = ("# Your campaign settings. The rules for each campaign come from campaigns.example.yaml,\n"
+              "# which `git pull` keeps up to date. Change these with:\n"
+              "#   python -m clipbot enable <id> --joined YYYY-MM-DD\n"
+              "#   python -m clipbot disable <id>\n"
+              "#   python -m clipbot set <id> <field> <value>   (e.g. set expedia-ishowspeed budget.used 1200)\n\n")
+    path.write_text(header + yaml.safe_dump(settings, sort_keys=True, allow_unicode=True), encoding="utf-8")
+
+
+def load_campaigns(path: Path | None = None, example: Path | None = None) -> dict[str, Campaign]:
+    """Campaign rules from the example file, with the person's settings merged on top."""
+    example = example or EXAMPLE_FILE
+    base = {str(e["id"]).lower(): e for e in (_read(example).get("campaigns") or [])}
+    settings = read_settings(path) if (path or SOURCES_FILE) != example else {}
+    merged = {}
+    for cid, entry in base.items():
+        merged[cid] = _merge(entry, settings.get(cid, {}))
+    for cid, entry in settings.items():
+        if cid not in base and entry.get("inputs"):
+            merged[cid] = _merge({"id": cid}, entry)
+    return {c.id: c for c in (_campaign(e) for e in merged.values())}
 
 
 def authorized_campaigns() -> dict[str, Campaign]:

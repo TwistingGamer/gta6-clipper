@@ -1,9 +1,11 @@
-# Copy to campaigns.yaml (it stays out of git) and keep it up to date.
+# Campaign rules. Don't copy this file: switch campaigns on with
+#   python -m clipbot enable <id> --joined YYYY-MM-DD
+# Your settings are saved to campaigns.yaml (out of git); `git pull` updates these rules.
 #
 # A campaign is only used when ALL of these are true:
 #   active: true, permission.type is campaign|written|own, permission.evidence is filled in,
 #   and expires_on (if set) hasn't passed.
-# Set active: true only after you've actually joined the campaign and read its rules page.
+# Enable a campaign only after you've actually joined it and read its rules page.
 # Values marked CHECK came from the campaign listing; confirm them on the rules page,
 # which is the source of truth (rules change, budgets run out).
 #

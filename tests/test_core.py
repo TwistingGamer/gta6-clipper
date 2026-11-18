@@ -55,7 +55,7 @@ class CampaignTest(unittest.TestCase):
         self.assertTrue(Campaign("a", permission_type="campaign", evidence="https://x").authorized()[0])
 
     def test_example_file_all_inactive(self):
-        cs = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")
+        cs = load_campaigns(example=Path(__file__).resolve().parents[1] / "campaigns.example.yaml", path=Path("/nonexistent.yaml"))
         self.assertIn("expedia-ishowspeed", cs)
         self.assertFalse(any(c.authorized()[0] for c in cs.values()))
         self.assertFalse(any(c.problems() for c in cs.values()))
@@ -92,7 +92,7 @@ class CampaignTest(unittest.TestCase):
 
 class CoreRulesTest(unittest.TestCase):
     def test_core_example_config(self):
-        c = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")["core-pool"]
+        c = load_campaigns(example=Path(__file__).resolve().parents[1] / "campaigns.example.yaml", path=Path("/nonexistent.yaml"))["core-pool"]
         self.assertEqual(c.min_members, 2)
         self.assertFalse(c.ai_text_allowed)
         self.assertNotIn("youtube_channel", [i.type for i in c.inputs])  # CORE YouTube goes to the 5K pool

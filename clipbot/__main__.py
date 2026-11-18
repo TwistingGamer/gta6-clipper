@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import argparse
+
+import yaml
 import json
 import logging
 import threading
@@ -166,6 +168,48 @@ def cmd_report(days: int):
             print(f"   {p['posted_at'][:16]}  {p['platform']:<9} {p['url'] or '(no link recorded)'}  {p['title']}")
 
 
+def cmd_enable(cid: str, joined: str | None, evidence: str | None, on: bool = True):
+    from datetime import date
+
+    from .sources import read_settings, write_settings
+    cid = cid.lower()
+    known = load_campaigns()
+    if cid not in known:
+        raise SystemExit(f"No campaign '{cid}'. Known: {', '.join(known)}")
+    settings = read_settings()
+    mine = settings.setdefault(cid, {})
+    mine["active"] = on
+    if on:
+        perm = mine.setdefault("permission", {})
+        perm["joined_on"] = joined or perm.get("joined_on") or date.today().isoformat()
+        if evidence:
+            perm["evidence"] = evidence
+    write_settings(settings)
+    c = load_campaigns()[cid]
+    ok, why = c.authorized()
+    if on and not ok:
+        print(f"{cid}: saved, but NOT active yet: {why}.")
+        if "evidence" in why:
+            print(f"  Add the campaign link: python -m clipbot enable {cid} --evidence https://...")
+    else:
+        print(f"{cid}: {'ON' if on else 'off'}")
+
+
+def cmd_set(cid: str, field: str, value: str):
+    from .sources import read_settings, write_settings
+    cid = cid.lower()
+    if cid not in load_campaigns():
+        raise SystemExit(f"No campaign '{cid}'")
+    settings = read_settings()
+    node = settings.setdefault(cid, {})
+    *parents, leaf = field.split(".")
+    for p in parents:
+        node = node.setdefault(p, {})
+    node[leaf] = yaml.safe_load(value)
+    write_settings(settings)
+    print(f"{cid}: {field} = {node[leaf]!r}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Campaign clip bot (approved footage only)")
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -178,6 +222,12 @@ def main():
     pd = sp.add_parser("posted"); pd.add_argument("clip_id"); pd.add_argument("platform"); pd.add_argument("url")
     rp = sp.add_parser("report"); rp.add_argument("--days", type=int, default=1)
     au = sp.add_parser("auth"); au.add_argument("platform", choices=["youtube", "tiktok"])
+    en = sp.add_parser("enable", help="switch a campaign on")
+    en.add_argument("campaign"); en.add_argument("--joined", help="YYYY-MM-DD (default today)")
+    en.add_argument("--evidence", help="campaign/rules link, if the example doesn't have it")
+    di = sp.add_parser("disable", help="switch a campaign off"); di.add_argument("campaign")
+    st = sp.add_parser("set", help="override one field, e.g. set core-pool budget.used 500")
+    st.add_argument("campaign"); st.add_argument("field"); st.add_argument("value")
     args = ap.parse_args()
     db.init_db()
 
@@ -204,6 +254,12 @@ def main():
         mark_posted(args.clip_id, args.platform, args.url)
     elif args.cmd == "report":
         cmd_report(args.days)
+    elif args.cmd == "enable":
+        cmd_enable(args.campaign, args.joined, args.evidence)
+    elif args.cmd == "disable":
+        cmd_enable(args.campaign, None, None, on=False)
+    elif args.cmd == "set":
+        cmd_set(args.campaign, args.field, args.value)
     elif args.cmd == "auth":
         if args.platform == "youtube":
             from .publish.youtube import credentials
