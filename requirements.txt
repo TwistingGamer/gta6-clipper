@@ -9,3 +9,4 @@ google-auth-oauthlib>=1.2,<2
 google-auth-httplib2>=0.2,<1
 yt-dlp>=2025.1
 streamlink>=7
+opencv-python-headless>=4.10,<5   # finds the facecam for the facecam-on-top layout

@@ -134,7 +134,7 @@ class RollingBuffer(threading.Thread):
 def schedule_cut(buffer: RollingBuffer, t_event: float):
     """Chat reacts a few seconds after the action, so keep PRE seconds before the spike
     and POST after; wait until the POST part has been buffered, then cut."""
-    pre, post = env_int("MOMENT_PRE_SECONDS", 45), env_int("MOMENT_POST_SECONDS", 20)
+    pre, post = env_int("MOMENT_PRE_SECONDS", 60), env_int("MOMENT_POST_SECONDS", 20)
 
     def _do():
         try:

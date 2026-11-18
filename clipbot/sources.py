@@ -112,6 +112,11 @@ class Campaign:
     budget_checked: str = ""
     series: str = ""               # free label used in titles/prompt, e.g. "gta6"
     notes: str = ""
+    submit: bool = True            # False: your own channel content, nothing to submit anywhere
+    discover: bool = False         # also follow the biggest live GTA streams that no other campaign covers
+    discover_limit: int = 4        # how many discovered streams to watch at once (each one uses bandwidth)
+    discover_min_viewers: int = 300
+    discover_exclude: list[str] = field(default_factory=list)  # logins never to pick up
 
     @property
     def display(self) -> str:
@@ -325,4 +330,49 @@ def load_campaigns(path: Path | None = None, example: Path | None = None) -> dic
 
 
 def authorized_campaigns() -> dict[str, Campaign]:
-    return {k: c for k, c in load_campaigns().items() if c.authorized()[0] and not c.problems()}
+    campaigns = {k: c for k, c in load_campaigns().items() if c.authorized()[0] and not c.problems()}
+    add_discovered(campaigns)
+    return campaigns
+
+
+# ---- discovered streams (campaigns with discover: true) ----
+def _discovered_path() -> Path:
+    from .config import DATA
+    return DATA / "discovered.json"
+
+
+def read_discovered() -> dict[str, dict]:
+    """{campaign id: {login: last time seen live (unix)}}"""
+    import json
+    p = _discovered_path()
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_discovered(data: dict[str, dict]):
+    import json
+    p = _discovered_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=1), encoding="utf-8")
+
+
+def add_discovered(campaigns: dict[str, Campaign], keep_hours: float | None = None):
+    """Give discover campaigns a twitch input for each stream found live in the last few hours,
+    so its saved moments are still clipped after the stream ends."""
+    import time
+    keep = (keep_hours if keep_hours is not None else float(os.getenv("DISCOVER_KEEP_HOURS", "6"))) * 3600
+    found = read_discovered()
+    for c in campaigns.values():
+        if not c.discover:
+            continue
+        have = c.live_logins()
+        for login, seen in (found.get(c.id) or {}).items():
+            if login not in have and time.time() - float(seen) < keep:
+                c.inputs.append(Input("twitch", login))
+
+
+def covered_logins(campaigns: dict[str, Campaign]) -> set[str]:
+    """Streams that belong to a specific campaign (on or off): never picked up by discovery."""
+    return {i.login for c in campaigns.values() if not c.discover for i in c.inputs if i.type in LIVE_TYPES}

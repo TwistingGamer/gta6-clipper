@@ -179,3 +179,16 @@ def chat_scores(login: str, rec_start: float, seconds: float, step: int = 10, wi
     # Relative to this recording's busiest moment, so big and small chats compare fairly.
     top = max(out) or 1.0
     return [x / top for x in out]
+
+
+def chat_per_second(login: str, rec_start: float, seconds: float) -> np.ndarray | None:
+    """Messages per second (hype emotes count double) across a recording."""
+    msgs = load_chat(login, rec_start, rec_start + seconds + 15)
+    if len(msgs) < 20:
+        return None
+    per_sec = np.zeros(int(seconds) + 16, dtype=np.float32)
+    for t, m in msgs:
+        i = int(t - rec_start)
+        if 0 <= i < len(per_sec):
+            per_sec[i] += 2 if HYPE.search(m) else 1
+    return per_sec

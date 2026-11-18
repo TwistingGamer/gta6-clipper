@@ -21,7 +21,7 @@ SCHEMA = {
         "score": {"type": "integer", "description": "0-10, how likely this is to perform as a Short"},
         "why": {"type": "string"},
         "title": {"type": "string", "description": "Under 70 characters, no clickbait lies"},
-        "hook": {"type": "string", "description": "On-screen text for the first seconds, max 7 words"},
+        "hook": {"type": "string", "description": "On-screen text for the first seconds that tells a viewer who knows nothing what is going on / what to watch for (the setup), max 9 words, no spoilers of the payoff"},
         "description": {"type": "string"},
         "hashtags": {"type": "array", "items": {"type": "string"}},
         "people": {"type": "array", "items": {"type": "string"},

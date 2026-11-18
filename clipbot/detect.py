@@ -41,21 +41,28 @@ def n_windows(seconds: float, window: int) -> int:
     return max(1, int(math.ceil(max(0.0, seconds - window) / STEP)) + 1)
 
 
-def audio_scores(path: Path, seconds: float, window: int) -> list[float]:
-    """Per-window loudness score from 8 kHz mono PCM, normalised to this recording."""
+def audio_per_second(path: Path) -> np.ndarray:
+    """Loudness per second relative to the recording's typical level (1.0 = normal talking)."""
     raw = subprocess.run(
         [FFMPEG, "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
         capture_output=True, check=True,
     ).stdout
     x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768
-    n = n_windows(seconds, window)
-    if not len(x):
-        return [0.0] * n
     sec = len(x) // 8000
-    rms = np.sqrt(np.mean(x[: sec * 8000].reshape(sec, 8000) ** 2, axis=1)) if sec else np.array([0.0])
+    if not sec:
+        return np.zeros(0, dtype=np.float32)
+    rms = np.sqrt(np.mean(x[: sec * 8000].reshape(sec, 8000) ** 2, axis=1))
     # Normalise against the recording's own typical level so quiet and loud streamers compare fairly.
     ref = float(np.median(rms)) or 1e-4
-    rel = rms / ref
+    return rms / ref
+
+
+def audio_scores(path: Path, seconds: float, window: int, rel: np.ndarray | None = None) -> list[float]:
+    """Per-window loudness score, normalised to this recording."""
+    rel = audio_per_second(path) if rel is None else rel
+    n = n_windows(seconds, window)
+    if not len(rel):
+        return [0.0] * n
     out = []
     for i in range(n):
         chunk = rel[i * STEP: i * STEP + window]
@@ -107,3 +114,38 @@ def pick_windows(seconds: float, window: int, signals: dict[str, list[float] | N
             if len(chosen) >= max_count:
                 break
     return chosen
+
+
+def refine(cand: Candidate, seconds: float, audio: np.ndarray | None, chat_ps: np.ndarray | None,
+           lead: float, tail: float, chat_lag: float = 5.0) -> Candidate:
+    """Re-centre a window on its peak second so the viewer sees the build-up.
+
+    The clip starts `lead` seconds before the moment (the setup) and ends `tail`
+    seconds after it (the payoff and reaction). Chat reacts a few seconds late,
+    so chat activity is shifted back by `chat_lag`.
+    """
+    a, b = int(cand.start), int(min(seconds, cand.start + cand.duration + 8))
+    if b - a < 3:
+        return cand
+    e = np.zeros(b - a, dtype=np.float32)
+    if audio is not None and len(audio):
+        seg = audio[a:b]
+        if len(seg):
+            loud = np.clip(seg - 1.0, 0, None)
+            e[:len(seg)] += loud / max(float(loud.max()), 1e-3)
+    if chat_ps is not None and len(chat_ps):
+        lagged = chat_ps[a + int(chat_lag): b + int(chat_lag)]
+        if len(lagged) and lagged.max() > 0:
+            e[:len(lagged)] += 1.3 * lagged / lagged.max()
+    if not e.any():
+        return cand
+    smooth = np.convolve(e, np.array([1.0, 2.0, 1.0]) / 4, "same")
+    peak = a + int(np.argmax(smooth))
+    start = max(0.0, peak - lead)
+    end = min(seconds, peak + tail)
+    if end - start < lead + tail:          # near the edges: keep the full length where possible
+        start = max(0.0, end - (lead + tail))
+        end = min(seconds, start + lead + tail)
+    if end - start < 10:
+        return cand
+    return Candidate(float(start), float(end - start), cand.score, cand.signals | {"peak_s": peak})

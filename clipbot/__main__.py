@@ -31,7 +31,8 @@ from .buffer import RollingBuffer, schedule_cut
 from .fetch import LIVE_DIR, capture_segment, category_ok, fetch_campaign, live_info
 from .pipeline import scan_all
 from .publish import daily_cap, mark_posted, mode, post_due, post_one
-from .sources import LIVE_TYPES, authorized_campaigns, load_campaigns
+from .sources import (LIVE_TYPES, add_discovered, authorized_campaigns, covered_logins, load_campaigns,
+                      read_discovered, write_discovered)
 from .twitch import Twitch
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -46,6 +47,9 @@ class LiveWatcher:
         self.chats: dict[str, ChatLogger] = {}
         self.captures: dict[str, threading.Event] = {}
         self.buffers: dict[str, RollingBuffer] = {}
+        self.discovering: set[str] = set()   # discovered streams being watched right now
+        self._last_discover = 0.0
+        self._warned_discover = False
 
     @staticmethod
     def moments_mode() -> bool:
@@ -65,7 +69,49 @@ class LiveWatcher:
         meta = live_info(inp)  # Kick / YouTube live (or Twitch without API keys)
         return meta is not None and category_ok(campaign, meta.get("category"))
 
+    def discover(self, campaigns):
+        """Pick up the biggest live GTA streams that no campaign covers (campaigns with discover: true)."""
+        finders = [c for c in campaigns.values() if c.discover]
+        if not finders:
+            self.discovering = set()
+            return
+        if not self.twitch.configured:
+            if not self._warned_discover:
+                LOG.warning("Finding GTA streams needs TWITCH_CLIENT_ID/SECRET in .env")
+                self._warned_discover = True
+            return
+        if time.time() - self._last_discover < env_int("DISCOVER_EVERY_MINUTES", 5) * 60:
+            add_discovered(campaigns, keep_hours=24)
+            return
+        self._last_discover = time.time()
+        covered = covered_logins(load_campaigns())
+        found = read_discovered()
+        now_watching = set()
+        for c in finders:
+            lang = None if c.language.lower() in ("", "any", "all") else c.language
+            try:
+                streams = self.twitch.top_streams(limit=100, language=lang)
+            except Exception as exc:
+                LOG.warning("GTA stream search failed: %s", exc)
+                return
+            skip = covered | {x.lower() for x in c.discover_exclude}
+            picks = [s["user_login"].lower() for s in streams
+                     if s.get("viewer_count", 0) >= c.discover_min_viewers and s["user_login"].lower() not in skip]
+            picks = picks[: max(0, c.discover_limit)]
+            seen = found.setdefault(c.id, {})
+            for login in picks:
+                if login not in self.discovering:
+                    LOG.info("[%s] found live GTA stream: %s", c.id, login)
+                seen[login] = time.time()
+            # forget streams not seen for a day
+            found[c.id] = {k: v for k, v in seen.items() if time.time() - float(v) < 86400}
+            now_watching |= set(picks)
+        write_discovered(found)
+        self.discovering = now_watching
+        add_discovered(campaigns, keep_hours=24)
+
     def tick(self, campaigns):
+        self.discover(campaigns)
         live_inputs = [(c, i) for c in campaigns.values() for i in c.inputs if i.type in LIVE_TYPES]
         twitch_logins = [i.login for _, i in live_inputs if i.type == "twitch"]
         try:
@@ -76,6 +122,8 @@ class LiveWatcher:
         wanted = set()
         for c, inp in live_inputs:
             key = inp.url  # one recorder per stream, even if several campaigns list it
+            if c.discover and inp.login not in self.discovering:
+                continue  # found earlier but no longer among the top streams
             if not self._is_live(c, inp, online):
                 continue
             wanted.add(key)
@@ -198,7 +246,7 @@ def cmd_report(days: int):
     campaigns = load_campaigns()
     for cid, posts in by.items():
         c = campaigns.get(cid)
-        print(f"\n== {c.display if c else cid} ==")
+        print(f"\n== {c.display if c else cid} =={'  (own channel: nothing to submit)' if c and not c.submit else ''}")
         if c and c.bio_link:
             print(f"   bio link required: {c.bio_link}")
         for p in posts:
@@ -248,7 +296,7 @@ def cmd_discover():
     print("Biggest live GTA streams (English):")
     for s in tw.top_streams(limit=25):
         login = s["user_login"].lower()
-        where = ", ".join(covered.get(login, [])) or "not on your list: no known policy, don't clip"
+        where = ", ".join(covered.get(login, [])) or "not on your list (gta-any picks it up if on)"
         print(f"  {s['viewer_count']:>7,}  {login:<20} {s['game_name']:<22} {where}")
 
 

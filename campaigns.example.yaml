@@ -192,6 +192,26 @@ campaigns:
     title_template: "Jynxzi in GTA 6"
     required_hashtags: ["#Jynxzi", "#GTA6"]
 
+  # ---- Any live GTA stream (your own channels, no campaign) ----
+  # Follows the biggest live GTA V / GTA 6 streams on Twitch that no campaign above covers
+  # (streamers listed in another campaign, on or off, are never picked up here, so their
+  # own rules apply). Clips go to your channels only, credited to the streamer, and are
+  # never submitted to a campaign. Turn on: python -m clipbot enable gta-any
+  - id: gta-any
+    name: Any live GTA stream (own channels)
+    <<: *gta_tolerated
+    permission: {type: tolerated, evidence: "open GTA clipping: streamer credited on every clip, not submitted anywhere"}
+    discover: true
+    discover_limit: 4            # streams watched at once (each one uses ~6 Mbps download)
+    discover_min_viewers: 300
+    discover_exclude: [ishowspeed]   # Speed's team claims YouTube clips; see ishowspeed-gta
+    language: any                # early GTA 6 players may stream in any language
+    submit: false
+    inputs: []
+    title_template: "{streamer} in GTA"
+    required_hashtags: ["#GTA6", "#GTAVI"]
+    content_rule: "Gameplay and reactions only. Skip story cutscenes, mission endings and story spoilers."
+
   # ---- Caution ----
   - id: ishowspeed-gta
     name: IShowSpeed (tolerated, NOT on YouTube)

@@ -67,7 +67,7 @@ def run_sample(channel: str | None, minutes: float) -> None:
     preview = Campaign(
         id="sample", name=f"{login} preview", permission_type="own",
         evidence="private local preview, never posted", inputs=[Input("twitch", login)],
-        series="gta6", min_clip_seconds=15, max_clip_seconds=45,
+        series="gta6", min_clip_seconds=15, max_clip_seconds=45, title_template=f"{login} in GTA",
     )
     os.environ.setdefault("MIN_SCORE", "0")
     os.environ["MAX_CLIPS_PER_SEGMENT"] = "1"

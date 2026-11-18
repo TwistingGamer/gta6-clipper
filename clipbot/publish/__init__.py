@@ -88,7 +88,11 @@ def submit_targets(item: dict, platform: str | None = None) -> list[str]:
 
 def _submit_note(c, item: dict | None = None, platform: str | None = None) -> str:
     campaigns = load_campaigns()
-    names = [campaigns[t].display if t in campaigns else t for t in (submit_targets(item, platform) if item else [c.id])]
+    targets = [t for t in (submit_targets(item, platform) if item else [c.id])
+               if t not in campaigns or campaigns[t].submit]
+    if not targets:
+        return "Own-channel clip: nothing to submit."
+    names = [campaigns[t].display if t in campaigns else t for t in targets]
     where = ", ".join(f"**{n}**" for n in names)
     if c.submit_within_minutes:
         return f"⏱ Submit the link to {where} within {c.submit_within_minutes} min of posting!"

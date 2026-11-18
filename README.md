@@ -75,9 +75,25 @@ and whether any of your campaigns covers them.
 
 The bot reads each streamer's Twitch chat live and keeps only the last few minutes of video (`CAPTURE_MODE=moments`).
 When chat suddenly runs about 3 times faster than normal with "KEKW / clip it / W" energy, it saves about 45 seconds before
-that moment and 20 seconds after it. The clipper then picks the best 15 to 60 seconds of that. Disk use stays around
+that moment and 20 seconds after it. The clipper then finds the peak and cuts from about 25 seconds before it
+(the setup) to about 10 seconds after (the payoff), so the clip makes sense to someone who wasn't watching. Disk use stays around
 0.5 GB per live stream, and saved moments are deleted after a day. A short buffer works even when VODs are
 subscriber-only or deleted.
+
+## How clips look
+
+Each clip is 1080x1920. When the stream has a webcam, the streamer's face goes on top and the gameplay below
+(`FRAME_MODE=auto`). With no webcam, the gameplay fills the screen. Captions (Whisper) sit under the facecam,
+the streamer credit at the bottom. With an `ANTHROPIC_API_KEY` each clip also opens with a short hook line that
+explains what's going on. If the facecam is missed, set `FACECAM=x,y,w,h` (fractions of the frame) in `.env`.
+
+## Clipping any GTA stream (gta-any)
+
+`python -m clipbot enable gta-any` follows the 4 biggest live GTA V / GTA 6 Twitch streams (any language, at least
+300 viewers) that none of your campaigns covers, and clips them for **your own channels**: streamer credited on
+screen and in the caption, never submitted to a campaign, no story cutscenes or endings. Streamers that have a
+campaign entry (paid or tolerated, on or off) are never picked up here, so their own rules apply (e.g. IShowSpeed
+stays off YouTube). Needs the Twitch keys. Change how many: `python -m clipbot set gta-any discover_limit 6`.
 
 ## Daily use
 
@@ -95,6 +111,17 @@ Brand-new accounts that post a lot right away tend to get throttled.
 **Priority:** when several campaigns have clips ready, the easiest, best-paying one goes first.
 Fixed footage beats live streams, and higher CPM, a higher max payout and remaining budget all count.
 Update the budget used from the dashboard now and then: `python -m clipbot set <id> budget.used 1200`. A campaign whose budget is used up is skipped.
+
+### Posting automatically
+
+`AUTO_POST=true` posts (or stages) approved clips on schedule, with the campaign's hashtags, mentions, credit, `#ad`
+and bio-link reminders already in the caption. Paid campaigns keep `require_review: true`: Reach and Content Rewards
+ban an account after one rule break, so you approve each one. For your own-channel clips you can skip review:
+
+```powershell
+python -m clipbot set gta-any require_review false
+# and in .env: AUTO_APPROVE=true
+```
 
 ## Adding a campaign
 

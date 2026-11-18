@@ -31,6 +31,16 @@ if os.getenv("KEEP_SYSTEM_TEMP", "").lower() not in ("1", "true", "yes"):
         os.environ[_k] = str(TMP)
 os.environ.setdefault("HF_HOME", str(MODELS / "huggingface"))
 os.environ.setdefault("XDG_CACHE_HOME", str(DATA / "cache"))
+# Model download noise: Windows can't make symlinks without Developer Mode (harmless), no token needed.
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("HF_HUB_VERBOSITY", "error")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+import logging as _logging
+import warnings as _warnings
+_warnings.filterwarnings("ignore", module="huggingface_hub")
+for _name in ("httpx", "httpx2", "httpcore", "huggingface_hub", "huggingface_hub.utils._http", "faster_whisper"):
+    _logging.getLogger(_name).setLevel(_logging.ERROR)
 
 
 def _tool(env_key: str, name: str) -> str:

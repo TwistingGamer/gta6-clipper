@@ -105,6 +105,57 @@ class CoreRulesTest(unittest.TestCase):
         self.assertNotIn("twitch.tv", desc)  # show_credit: false
 
 
+class ContextTest(unittest.TestCase):
+    def test_refine_puts_moment_late_in_clip(self):
+        import numpy as np
+        audio = np.ones(200, dtype=np.float32)
+        audio[120] = 6.0                      # the big moment at 120 s
+        cand = detect.Candidate(100.0, 36.0, 0.9)
+        out = detect.refine(cand, 200, audio, None, lead=25, tail=10)
+        self.assertAlmostEqual(out.start, 95.0)
+        self.assertAlmostEqual(out.duration, 35.0)
+
+    def test_refine_chat_lag_and_edges(self):
+        import numpy as np
+        chat_ps = np.zeros(80, dtype=np.float32)
+        chat_ps[20] = 30                      # chat erupts 5 s after the moment at 15 s
+        out = detect.refine(detect.Candidate(0.0, 36.0, 0.9), 70, None, chat_ps, lead=25, tail=10)
+        self.assertEqual(out.start, 0.0)      # can't start before the recording
+        self.assertAlmostEqual(out.duration, 35.0)
+
+
+class DiscoverTest(unittest.TestCase):
+    def test_gta_any_rules(self):
+        cs = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")
+        g = cs["gta-any"]
+        self.assertTrue(g.discover)
+        self.assertFalse(g.submit)
+        self.assertIn("ishowspeed", g.discover_exclude)
+        self.assertFalse(g.problems())
+        from clipbot.sources import covered_logins
+        covered = covered_logins(cs)
+        self.assertIn("kaicenat", covered)
+        self.assertIn("xqc", covered)       # tolerated streamers keep their own rules
+        from clipbot.ai import template_text
+        title, desc, tags = package(g, template_text(g), [], "somestreamer")
+        self.assertIn("somestreamer", title)
+        self.assertIn("#GTA6", tags)
+
+    def test_add_discovered(self):
+        import os
+        from clipbot import sources
+        with tempfile.TemporaryDirectory() as d:
+            orig = sources._discovered_path
+            sources._discovered_path = lambda: Path(d) / "discovered.json"
+            try:
+                sources.write_discovered({"gta-any": {"newguy": time.time(), "oldguy": time.time() - 99999}})
+                cs = {"gta-any": Campaign("gta-any", discover=True)}
+                sources.add_discovered(cs, keep_hours=6)
+                self.assertEqual(cs["gta-any"].live_logins(), {"newguy"})
+            finally:
+                sources._discovered_path = orig
+
+
 class ChatTest(unittest.TestCase):
     def test_spike_detected(self):
         login = f"unittest_{int(time.time())}"

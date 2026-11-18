@@ -4,7 +4,10 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+import wave
 from pathlib import Path
+
+import numpy as np
 
 from .config import DATA, FFMPEG, MODELS
 
@@ -40,11 +43,18 @@ def transcribe(source: Path, start: float, duration: float, srt_out: Path, words
     tmp = DATA / f"_audio_{os.getpid()}_{threading.get_ident()}.wav"
     subprocess.run(
         [FFMPEG, "-y", "-v", "error", "-ss", str(start), "-i", str(source), "-t", str(duration),
-         "-ar", "16000", "-ac", "1", str(tmp)],
+         "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", str(tmp)],
         check=True,
     )
     try:
-        segments, _ = whisper_model().transcribe(str(tmp), vad_filter=True, word_timestamps=True)
+        # Hand Whisper the samples directly: its own decoder (PyAV) breaks on newer PyAV releases
+        # ("unexpected keyword argument 'metadata_errors'").
+        with wave.open(str(tmp), "rb") as wav:
+            audio = np.frombuffer(wav.readframes(wav.getnframes()), dtype="<i2").astype(np.float32) / 32768
+        if not len(audio):
+            srt_out.write_text("", encoding="utf-8")
+            return ""
+        segments, _ = whisper_model().transcribe(audio, vad_filter=True, word_timestamps=True)
         lines, text, idx = [], [], 1
         for seg in segments:
             text.append(seg.text.strip())

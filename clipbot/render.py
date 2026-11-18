@@ -1,10 +1,11 @@
-"""FFmpeg rendering: 1080x1920 vertical clip with blurred fill, captions and overlays."""
+"""FFmpeg rendering: 1080x1920 vertical clip (facecam/gameplay split, fill or fit), captions and overlays."""
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
 
 from .config import FFMPEG
+from .layout import Layout, video_graph
 
 
 def filter_path(p: Path) -> str:
@@ -14,17 +15,15 @@ def filter_path(p: Path) -> str:
 
 
 def render(source: Path, start: float, duration: float, dest: Path,
-           srt: Path | None = None, overlay: Path | None = None):
-    graph = (
-        "[0:v]split=2[back][front];"
-        "[back]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=8:3,scale=1080:1920[bg];"  # blur small = fast
-        "[front]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
-        "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v0]"
-    )
+           srt: Path | None = None, overlay: Path | None = None, layout: Layout | None = None):
+    layout = layout or Layout("fit")
+    graph = video_graph(layout)
+    # SRT styles are measured on a 288-high canvas; convert the layout's caption height to it.
+    margin = round(layout.caption_y / 1920 * 288)
     last = "v0"
     if srt and srt.exists() and srt.stat().st_size:
         graph += (f";[{last}]subtitles=filename='{filter_path(srt)}':"
-                  "force_style='FontName=Arial,FontSize=15,Bold=1,Alignment=2,MarginV=75,Outline=3,Shadow=1'[v1]")
+                  f"force_style='FontName=Arial,FontSize=16,Bold=1,Alignment=2,MarginV={margin},Outline=3,Shadow=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000'[v1]")
         last = "v1"
     if overlay and overlay.exists():
         graph += f";[{last}]subtitles=filename='{filter_path(overlay)}'[v2]"

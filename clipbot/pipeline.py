@@ -8,7 +8,7 @@ import os
 import time
 from pathlib import Path
 
-from . import ai, chat, db, detect
+from . import ai, chat, db, detect, layout
 from .captions import overlay_ass, transcribe
 from .config import OUTPUT, VIDEO_EXTS, env_bool, env_float, env_int
 from .fetch import LIVE_DIR, folder_inputs
@@ -40,8 +40,9 @@ def package(c: Campaign, verdict: dict, people: list[str] | None = None,
         plain = ai.template_text(c)
         verdict = verdict | {k: plain[k] for k in ("title", "description", "hashtags", "hook")}
     names = " & ".join(people) if people else c.display
-    title = verdict["title"].replace("{members}", names).strip()
-    verdict = verdict | {"description": verdict["description"].replace("{members}", names)}
+    streamer = login or ""
+    title = verdict["title"].replace("{members}", names).replace("{streamer}", streamer).strip()
+    verdict = verdict | {"description": verdict["description"].replace("{members}", names).replace("{streamer}", streamer)}
     desc = verdict["description"].strip()
     for word in c.required_words:
         if word.lower() not in f"{title} {desc}".lower():
@@ -93,10 +94,13 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
     seconds = detect.ffprobe_seconds(path)
     login, rec_start = recording_meta(path)
 
-    signals: dict[str, list[float] | None] = {"audio": detect.audio_scores(path, seconds, window)}
+    audio_ps = detect.audio_per_second(path)
+    chat_ps = None
+    signals: dict[str, list[float] | None] = {"audio": detect.audio_scores(path, seconds, window, audio_ps)}
     inp = c.input_for_login(login) if login else None
     if inp and inp.type == "twitch" and rec_start:
         signals["chat"] = chat.chat_scores(login, rec_start, seconds, detect.STEP, window)
+        chat_ps = chat.chat_per_second(login, rec_start, seconds)
         if twitch is not None:
             try:
                 clips = twitch.clips_between(login, rec_start, rec_start + seconds)
@@ -110,10 +114,18 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
     LOG.info("[%s] %s: %d candidates (signals: %s)", c.id, path.name, len(candidates),
              ", ".join(k for k, v in signals.items() if v))
 
-    made = 0
+    # Context: start well before the moment (the setup) and end just after the payoff.
+    lead = env_float("CONTEXT_SECONDS", 25)
+    tail = env_float("AFTER_SECONDS", 10)
+    total = max(c.min_clip_seconds, min(lead + tail, c.max_clip_seconds))
+    lead, tail = total * lead / (lead + tail), total * tail / (lead + tail)
+    made, used = 0, []
     for cand in candidates:
         if made >= max_out:
             break
+        cand = detect.refine(cand, seconds, audio_ps, chat_ps, lead, tail)
+        if any(cand.start < e and cand.start + cand.duration > s for s, e in used):
+            continue  # re-centred onto a moment that's already clipped
         sig = hashlib.sha256(f"{c.id}|{path}|{stat.st_size}|{stat.st_mtime}|{cand.start}".encode()).hexdigest()[:16]
         if db.get_clip(sig) or db.clip_exists_for(str(path), cand.start):
             continue  # already clipped (possibly for a linked campaign: one clip, submitted to several)
@@ -156,7 +168,9 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
         ad_label = os.getenv("AD_LABEL", "Paid partnership #ad") if c.ad_disclosure else ""
         overlay_ass(overlay, cand.duration, hook, c.watermark or c.credit_for(login), ad_label)
         dest = OUTPUT / f"{stem}.mp4"
-        render(path, cand.start, cand.duration, dest, srt=srt, overlay=overlay)
+        frame = layout.choose(path, cand.start, cand.duration)
+        render(path, cand.start, cand.duration, dest, srt=srt, overlay=overlay, layout=frame)
+        used.append((cand.start, cand.start + cand.duration))
 
         db.insert_clip({
             "id": sig, "source": str(path), "output": str(dest),
@@ -165,7 +179,7 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
             "streamer": login or "", "campaign": c.id, "series": c.series,
             "description": description, "hashtags": tags, "hook": hook,
             "start_s": cand.start, "duration_s": cand.duration, "ad_disclosure": int(c.ad_disclosure),
-            "reasons": {"signals": cand.signals, "ai": verdict.get("why", ""), "transcript": transcript[:500],
+            "reasons": {"signals": cand.signals, "layout": frame.mode, "ai": verdict.get("why", ""), "transcript": transcript[:500],
                         "people": people, "submit_to": [c.id] + c.also_submit_to,
                         "check": ([] if ai_ran or not c.min_members else
                                   [f"confirm at least {c.min_members} members are on screen and fix member hashtags"])},
