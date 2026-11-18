@@ -17,15 +17,29 @@ Started from a ChatGPT-built MVP. Kept its FFmpeg pipeline and permission-first 
 
 ## Setup (Windows)
 
-Install **Python 3.11+**, **FFmpeg** (with libass, which the gyan.dev "full" build has) and **Streamlink**, then:
+Works on **Python 3.10 to 3.13** (tested on 3.13). In PowerShell:
 
 ```powershell
-py -3.11 -m venv .venv
+# 1. Tools (FFmpeg and Streamlink), one time
+winget install Gyan.FFmpeg
+winget install Streamlink.Streamlink
+#    then close and reopen PowerShell so they're on PATH
+
+# 2. Unzip the bot into its own folder and go into it
+Expand-Archive "$HOME\Downloads\campaign-clipbot.zip" -DestinationPath "$HOME\clipbot"
+cd "$HOME\clipbot"
+
+# 3. Python environment
+py -3.13 -m venv .venv
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # only needed once, if Activate.ps1 is blocked
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt yt-dlp
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 Copy-Item .env.example .env
 Copy-Item campaigns.example.yaml campaigns.yaml
 ```
+
+Every time you open a new PowerShell window later: `cd "$HOME\clipbot"` then `.\.venv\Scripts\Activate.ps1`.
 
 Then:
 
