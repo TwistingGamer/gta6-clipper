@@ -101,6 +101,17 @@ def set_status(clip_id: str, status: str):
     write_queue_file(clip_id)
 
 
+def update_reasons(clip_id: str, **fields):
+    item = get_clip(clip_id)
+    if not item:
+        return
+    reasons = item.get("reasons") if isinstance(item.get("reasons"), dict) else {}
+    reasons.update(fields)
+    with connect() as con:
+        con.execute("UPDATE clips SET reasons=? WHERE id=?", (json.dumps(reasons), clip_id))
+    write_queue_file(clip_id)
+
+
 def list_clips(status: str | None = None, limit: int = 50) -> list[dict]:
     q = "SELECT id, campaign, score, status, title, output FROM clips"
     args: tuple = ()

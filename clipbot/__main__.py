@@ -259,7 +259,7 @@ class LiveWatcher:
 
 def cleanup_old_recordings():
     """Saved moments/segments are only needed until they've been clipped."""
-    hours = env_int("KEEP_RECORDINGS_HOURS", 24)
+    hours = env_int("KEEP_RECORDINGS_HOURS", 3)
     cutoff = time.time() - hours * 3600
     for p in [*LIVE_DIR.glob("*.mp4"), *LIVE_DIR.glob("*.json")] if LIVE_DIR.exists() else []:
         try:

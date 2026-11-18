@@ -110,9 +110,14 @@ def check_clip(item: dict, platform: str):
         raise PermissionError(f"campaign {c.id}: budget used up")
     if item["status"] != "approved":
         raise PermissionError(f"clip {item['id']} is {item['status']}, approve it first")
-    if not Path(item["output"]).is_file():
+    if not Path(item["output"] or "").is_file() and not discord_link(item):
         raise FileNotFoundError(item["output"])
     return c
+
+
+def discord_link(item: dict) -> str:
+    reasons = item.get("reasons") if isinstance(item.get("reasons"), dict) else {}
+    return reasons.get("discord_link", "")
 
 
 def submit_targets(item: dict, platform: str | None = None) -> list[str]:
@@ -163,7 +168,9 @@ def stage_manual(item: dict, platform: str, c) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     name = Path(item["output"]).name
     video = dest_dir / (name if item["id"] in name else f"{c.id}_{item['id']}.mp4")
-    shutil.copy2(item["output"], video)
+    local = Path(item["output"] or "").is_file()
+    if local:
+        shutil.copy2(item["output"], video)
     texts = captions_for(item, platform)
     video.with_suffix(".txt").write_text(
         f"PLATFORM: {platform}\nCAMPAIGN: {c.display}\n\n"
@@ -176,8 +183,9 @@ def stage_manual(item: dict, platform: str, c) -> Path:
     # Ping: the video, then each caption as its own message so it copies cleanly on a phone.
     ad = "\n⚠️ Turn on the paid-partnership / branded-content label." if item.get("ad_disclosure") else ""
     bio = f"\n🔗 Bio link must be: {c.bio_link}" if c.bio_link else ""
-    notify(f"📲 **{platform.upper()}** ({c.display}) `{video.name}`{ad}{bio}\n{_submit_note(c, item, platform)}\n"
-           f"After posting: `python -m clipbot posted {item['id']} {platform} LINK`", file=video)
+    where = "" if local else f"\n🎬 Video: {discord_link(item)} (save it from that message)"
+    notify(f"📲 **{platform.upper()}** ({c.display}) `{video.name}`{ad}{bio}{where}\n{_submit_note(c, item, platform)}\n"
+           f"After posting: `python -m clipbot posted {item['id']} {platform} LINK`", file=video if local else None)
     for label, text in texts.items():
         if len(texts) > 1:
             notify(f"⬇️ {platform} {label.lower()}")

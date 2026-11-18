@@ -46,29 +46,55 @@ def bot_ready() -> bool:
 
 
 def phone_copy(src: Path) -> Path | None:
-    """720p copy sized to fit the Discord upload limit (the original stays full quality for posting)."""
+    """Best quality that fits the Discord upload limit: two-pass x264 with the bitrate fitted to the clip
+    length, 1080x1920 when there's enough bitrate for it (else 720x1280), 60 fps kept when the bitrate allows."""
     if not src.is_file():
         return None
-    if src.stat().st_size <= max_upload_bytes():
+    limit = max_upload_bytes()
+    if src.stat().st_size <= limit:
         return src
     try:
         dur = float(subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)],
                                    capture_output=True, text=True, check=True).stdout.strip())
     except Exception:
         dur = 60.0
-    budget_bits = max_upload_bytes() * 8 * 0.9
-    video_k = max(300, int(budget_bits / max(dur, 1) / 1000) - 96)
+    audio_k = 128
+    video_k = max(250, int(limit * 8 * 0.93 / max(dur, 1) / 1000) - audio_k)   # 7% for container overhead
+    width = 1080 if video_k >= 1800 else 720
+    fps = [] if video_k >= 3000 else ["-r", "30"]   # drop to 30 fps when bits are tight: sharper frames
     TMP.mkdir(parents=True, exist_ok=True)
-    out = TMP / f"phone_{src.stem}.mp4"
+    out = TMP / f"discord_{src.stem}.mp4"
+    log = TMP / f"x264_{src.stem}"
+    base = [FFMPEG, "-y", "-v", "error", "-i", str(src), "-vf", f"scale={width}:-2:flags=lanczos", *fps,
+            "-c:v", "libx264", "-preset", os.getenv("VIDEO_PRESET", "medium"), "-b:v", f"{video_k}k",
+            "-passlogfile", str(log)]
     try:
-        subprocess.run([FFMPEG, "-y", "-v", "error", "-i", str(src), "-vf", "scale=720:-2",
-                        "-c:v", "libx264", "-preset", "veryfast", "-b:v", f"{video_k}k", "-maxrate", f"{video_k}k",
-                        "-bufsize", f"{video_k * 2}k", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(out)],
+        subprocess.run(base + ["-pass", "1", "-an", "-f", "mp4", os.devnull], check=True)
+        subprocess.run(base + ["-pass", "2", "-c:a", "aac", "-b:a", f"{audio_k}k", "-movflags", "+faststart", str(out)],
                        check=True)
     except Exception as exc:
-        LOG.warning("phone copy failed: %s", exc)
+        LOG.warning("Discord copy failed: %s", exc)
+        return None
+    finally:
+        for f in TMP.glob(f"x264_{src.stem}*"):
+            f.unlink(missing_ok=True)
+    if out.stat().st_size > limit:   # rare overshoot: one more go at 85% of the bitrate
+        out.unlink(missing_ok=True)
         return None
     return out
+
+
+def _message_link(msg: dict) -> str:
+    """Permanent link to the Discord message (attachment URLs expire, message links don't)."""
+    from .notify import _url
+    guild = os.getenv("DISCORD_GUILD_ID", "")
+    if not guild:
+        try:
+            guild = requests.get(_url(), timeout=10).json().get("guild_id", "") or ""
+            os.environ["DISCORD_GUILD_ID"] = guild
+        except Exception:
+            guild = ""
+    return f"https://discord.com/channels/{guild or '@me'}/{msg['channel_id']}/{msg['id']}"
 
 
 def announce_new_clip(item: dict):
@@ -81,16 +107,26 @@ def announce_new_clip(item: dict):
            if bot_ready() else f"Approve: `python -m clipbot approve {item['id']}`  ·  reject: `python -m clipbot reject {item['id']}`")
     text = (f"{kind} · **{item.get('streamer') or item.get('campaign')}** · score {int(min(item.get('score') or 0, 0.99) * 100)}\n"
             f"{item.get('title', '')}\n`{item['id']}` · {item.get('campaign')}\n{how}")
-    small = phone_copy(Path(item.get("output") or ""))
+    src = Path(item.get("output") or "")
+    small = phone_copy(src)
     try:
         msg = notify(text, file=small)
     finally:
         if small and small.parent == TMP:
             small.unlink(missing_ok=True)
-    if msg and msg.get("id") and msg.get("channel_id"):
-        data = _load()
-        data[item["id"]] = [msg["channel_id"], msg["id"]]
-        _save(data)
+    if not (msg and msg.get("id") and msg.get("channel_id")):
+        return  # no Discord (or it failed): the clip stays on the PC
+    data = _load()
+    data[item["id"]] = [msg["channel_id"], msg["id"]]
+    _save(data)
+    uploaded = [a for a in (msg.get("attachments") or []) if a.get("filename", "").endswith(".mp4")]
+    if uploaded:
+        db.update_reasons(item["id"], discord_link=_message_link(msg), discord_file=uploaded[0].get("url", ""))
+        if env_bool("DISCORD_ONLY", True):
+            # Discord is the clip's home: free the PC (it stays if the upload didn't happen).
+            from .publish import delete_clip_files
+            delete_clip_files(db.get_clip(item["id"]) | {"source": ""})
+            LOG.info("%s uploaded to Discord; PC copy deleted", item["id"])
 
 
 def _reacted(channel: str, message: str, emoji: str) -> bool:

@@ -93,6 +93,11 @@ and save. To approve or reject by reacting ✅ / ❌ on that message:
    `.env` as `DISCORD_USER_ID=`. Only your reactions count.
 4. Restart the bot. Reactions are picked up within a minute.
 
+**Discord is the clip's home** (`DISCORD_ONLY=true`): each clip is uploaded as the best quality that fits Discord's
+10 MB (two-pass, 1080x1920, bitrate fitted to the length), then deleted from the PC. Ready-to-post pings link to that
+Discord message so you save the video from there. A clip stays on the PC only if the upload fails. With a boosted
+server (50 MB uploads) set `NOTIFY_MAX_MB=50` for near-full quality.
+
 ## It learns from your ✅ / ❌
 
 Each approve/reject (Discord reaction or command; bulk `--all` / `--top` don't count) is logged with the clip's
