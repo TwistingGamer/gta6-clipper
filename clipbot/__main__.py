@@ -51,6 +51,7 @@ class LiveWatcher:
         self.titles: dict[str, str] = {}
         self.discovering: set[str] = set()   # discovered streams being watched right now
         self._last_discover = 0.0
+        self.viewer_hist: dict[str, list[tuple[float, int]]] = {}  # login -> [(time, viewers)]
         self._warned_discover = False
 
     @staticmethod
@@ -122,9 +123,11 @@ class LiveWatcher:
                 LOG.warning("GTA stream search failed: %s", exc)
                 return
             skip = covered | {x.lower() for x in c.discover_exclude}
-            picks = [s["user_login"].lower() for s in streams
-                     if s.get("viewer_count", 0) >= c.discover_min_viewers and s["user_login"].lower() not in skip]
-            picks = picks[: max(0, c.discover_limit)]
+            ok = [s for s in streams
+                  if s.get("viewer_count", 0) >= c.discover_min_viewers and s["user_login"].lower() not in skip]
+            # Big and growing first: a stream whose viewers are surging is most likely real GTA 6 on launch.
+            ok.sort(key=lambda s: -s.get("viewer_count", 0) * self.surge(s["user_login"].lower(), s.get("viewer_count", 0)))
+            picks = [s["user_login"].lower() for s in ok][: max(0, c.discover_limit)]
             seen = found.setdefault(c.id, {})
             for login in picks:
                 if login not in self.discovering:
@@ -136,6 +139,15 @@ class LiveWatcher:
         write_discovered(found)
         self.discovering = now_watching
         add_discovered(campaigns, keep_hours=24)
+
+    def surge(self, login: str, viewers: int) -> float:
+        """How fast viewers are growing: now vs. ~30 min ago (1.0 = flat, capped at 3)."""
+        now = time.time()
+        hist = [h for h in self.viewer_hist.get(login, []) if now - h[0] < 3600] + [(now, viewers)]
+        self.viewer_hist[login] = hist
+        old = [v for t, v in hist if now - t >= 20 * 60]
+        base = old[-1] if old else hist[0][1]
+        return max(0.5, min(3.0, viewers / max(base, 1)))
 
     def tick(self, campaigns):
         self.discover(campaigns)
