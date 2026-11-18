@@ -87,6 +87,7 @@ class Campaign:
     min_clip_seconds: int = 15
     max_clip_seconds: int = 60
     credit: str = ""
+    show_credit: bool = True
     required_hashtags: list[str] = field(default_factory=list)
     required_mentions: list[str] = field(default_factory=list)
     watermark: str = ""            # on-screen text some campaigns require for the whole clip
@@ -101,6 +102,9 @@ class Campaign:
     post_hours: str = ""           # local hours posting is allowed, e.g. "9-23" (you must be awake to submit)
     submit_within_minutes: int = 0 # campaign deadline to submit the link after posting (sends a ping)
     language: str = "en"
+    members: list[dict] = field(default_factory=list)   # [{name, hashtag, logins: [...]}] people the clip may feature
+    min_members: int = 0           # e.g. 2: clip must show at least this many members
+    also_submit_to: list[str] = field(default_factory=list)  # other campaign ids the same clip can be submitted to
     sponsor: str = ""              # brand named in the ad disclosure, e.g. "Expedia"
     budget_total: float = 0.0      # campaign budget from the dashboard
     budget_used: float = 0.0       # update when you check; 100% used = campaign ignored
@@ -112,12 +116,23 @@ class Campaign:
     def display(self) -> str:
         return self.name or self.id
 
-    @property
-    def credit_line(self) -> str:
+    def credit_for(self, login: str | None = None) -> str:
+        """On-screen/caption credit: explicit `credit`, else the stream the clip came from.
+        show_credit: false turns it off (e.g. campaigns that allow no extra on-screen text)."""
+        if not self.show_credit:
+            return ""
         if self.credit:
             return self.credit
         live = [i for i in self.inputs if i.type in LIVE_TYPES]
-        return live[0].url.replace("https://www.", "").replace("https://", "") if live else ""
+        pick = next((i for i in live if login and i.login == login), live[0] if live else None)
+        return pick.url.replace("https://www.", "").replace("https://", "") if pick else ""
+
+    @property
+    def credit_line(self) -> str:
+        return self.credit_for()
+
+    def live_logins(self) -> set[str]:
+        return {i.login for i in self.inputs if i.type in LIVE_TYPES}
 
     @property
     def folder(self) -> Path:
@@ -125,6 +140,13 @@ class Campaign:
         p = RECORDINGS / self.id
         p.mkdir(parents=True, exist_ok=True)
         return p
+
+    def member_for_login(self, login: str) -> dict | None:
+        return next((m for m in self.members if login and login.lower() in [x.lower() for x in m.get("logins", [])]), None)
+
+    def member_tags(self, names: list[str]) -> list[str]:
+        wanted = {n.lower() for n in names}
+        return [m.get("hashtag") or "#" + m["name"].replace(" ", "") for m in self.members if m["name"].lower() in wanted]
 
     def input_for_login(self, login: str) -> Input | None:
         return next((i for i in self.inputs if i.type in LIVE_TYPES and i.login == login), None)

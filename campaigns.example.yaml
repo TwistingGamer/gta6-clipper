@@ -39,7 +39,7 @@ campaigns:
     platforms: [tiktok, instagram, youtube]
     series: gta6
 
-  - id: lacy-gta
+  - id: lacy-gta                   # CORE clips can also be submitted here if they meet these rules too
     name: Lacy (GTA)
     <<: *defaults
     permission: {type: campaign, evidence: ""}   # TODO
@@ -75,20 +75,52 @@ campaigns:
     series: gta6
 
   # ===================== Other campaigns (not GTA niche) =====================
+  # Rules read 2026-11-18 (pasted from reachclipping.com/CORE).
+  # Join: https://contentrewards.com/c/campaigns/2886f500-f062-48dd-a9b4-9de5725f8186
   - id: core-pool
     name: CORE $20K Pool
     <<: *defaults
     permission:
       type: campaign
       evidence: https://reachclipping.com/CORE
-      joined_on:            # fill in when you join
+      joined_on:                   # fill in when you join
+      expires_on: 2026-11-30       # pool ends 11/30/26
+    # Any video, stream or clip with 2+ CORE members, EXCEPT the CORE YouTube channel
+    # (that content belongs to the $5K core-yt-pool campaign).
+    members:                       # CHECK the roster and Twitch logins
+      - {name: Lacy, hashtag: "#Lacy", logins: [lacy]}
+      - {name: Jason, hashtag: "#JasonTheWeen", logins: [jasontheween]}
+      - {name: Stable Ronaldo, hashtag: "#StableRonaldo", logins: [stableronaldo]}
+      - {name: Silky, hashtag: "#Silky", logins: [silky]}
+    min_members: 2
     inputs:
-      - {type: youtube_channel, target: "https://www.youtube.com/@createownruneverything", max_videos: 5}
-      # Their TikTok/Instagram/X posts are also approved sources: save them into this folder by hand.
+      - {type: twitch, target: lacy}
+      - {type: twitch, target: jasontheween}
+      - {type: twitch, target: stableronaldo}
+      - {type: twitch, target: silky}
+      # CORE's TikTok/Instagram/X posts are also allowed sources: save them in this folder by hand.
       - {type: folder, target: "recordings/core-pool/manual"}
+    game_filter: grand theft auto  # your page is GTA, so only record their GTA streams
+    allow_recording: true
     platforms: [tiktok, instagram, youtube, x]
-    content_rule: "At least 2 Core members must be clearly on screen."
-    notes: "Pool campaign, MVR 2M total views across approved submissions. CHECK hashtags/tags on rules page."
+    ai_text_allowed: false         # "AI-generated content ... removes you from every Reach campaign"
+    title_template: "{members} in GTA 6 😂 | CORE"   # edit per clip to describe the moment
+    required_words: [CORE]         # caption/overlay must mention CORE or member names
+    required_hashtags: ["#CORE", "#GTA6"]           # + one hashtag per member in the clip (added automatically)
+    show_credit: false             # no logos; keep on-screen text to what the rules ask for
+    require_review: true           # one strike = banned from every Reach campaign
+    post_hours: "10-23"            # submit each link within 30 min of posting, so post while awake
+    submit_within_minutes: 30
+    also_submit_to: [lacy-gta, jason]   # same clip can also be submitted to Lacy + JasonTheWeen campaigns
+    content_rule: >-
+      At least 2 CORE members (Lacy, Jason, Stable Ronaldo, Silky) must clearly appear or talk together.
+      Funny moments, reactions, interactions, banter. Never portray CORE negatively, no false narratives,
+      no hate farming. English only.
+    budget: {total: 20000}
+    series: gta6
+    notes: >-
+      Pool: $20K split by share of approved views, 2M total views minimum, paid when the campaign ends.
+      Audience 50%+ US/CA/AU/UK/NZ. No collab posts, no reposts, no repetitive thumbnails.
 
   - id: core-yt-pool
     name: CORE YouTube $5K Pool
@@ -156,7 +188,7 @@ campaigns:
     title_template: "IShowSpeed's Expedia trip"   # edit per clip: must name the destination accurately
     required_words: [Expedia]      # "the video must mention Expedia"
     required_hashtags: ["#IShowSpeed", "#Expedia"]
-    credit: ""                     # no extra on-screen text/logos beyond Expedia's
+    show_credit: false             # no extra on-screen text/logos beyond Expedia's
     ad_disclosure: true            # rules don't say, but paid brand promotion needs disclosure (FTC)
     require_review: true           # one strike = permanent ban from all Reach campaigns
     post_hours: "9-22"             # links must be submitted in Content Rewards within 30 min

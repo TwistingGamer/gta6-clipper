@@ -75,10 +75,24 @@ def check_clip(item: dict, platform: str):
     return c
 
 
-def _submit_note(c) -> str:
+def submit_targets(item: dict, platform: str | None = None) -> list[str]:
+    """Every campaign this clip should be submitted to (e.g. CORE pool + Lacy + Jason),
+    limited to campaigns that pay on `platform`."""
+    reasons = item.get("reasons") or {}
+    targets = (reasons.get("submit_to") if isinstance(reasons, dict) else None) or [item.get("campaign")]
+    if platform:
+        campaigns = load_campaigns()
+        targets = [t for t in targets if t == item.get("campaign") or (t in campaigns and platform in campaigns[t].platforms)]
+    return targets
+
+
+def _submit_note(c, item: dict | None = None, platform: str | None = None) -> str:
+    campaigns = load_campaigns()
+    names = [campaigns[t].display if t in campaigns else t for t in (submit_targets(item, platform) if item else [c.id])]
+    where = ", ".join(f"**{n}**" for n in names)
     if c.submit_within_minutes:
-        return f"⏱ Submit the link for **{c.display}** within {c.submit_within_minutes} min of posting!"
-    return f"Submit the link for **{c.display}** on the campaign dashboard."
+        return f"⏱ Submit the link to {where} within {c.submit_within_minutes} min of posting!"
+    return f"Submit the link to {where} on the campaign dashboard."
 
 
 def stage_manual(item: dict, platform: str, c) -> Path:
@@ -89,8 +103,7 @@ def stage_manual(item: dict, platform: str, c) -> Path:
     caption = f"{item['title']}\n\n{item['description']}"
     if platform == "x":
         # X posts are capped at 280 characters: title + required tags only.
-        tags = " ".join(t for t in item.get("hashtags", []) if t.lower() == "#ad" or t in (c.required_hashtags or []))
-        caption = f"{item['title']} {tags}".strip()[:280]
+        caption = f"{item['title']} {' '.join(item.get('hashtags', []))}".strip()[:280]
     video.with_suffix(".txt").write_text(
         f"PLATFORM: {platform}\nCAMPAIGN: {c.display}\n\nTITLE:\n{item['title']}\n\n"
         f"CAPTION / DESCRIPTION:\n{item['description'] if platform == 'youtube' else caption}\n\n"
@@ -99,7 +112,7 @@ def stage_manual(item: dict, platform: str, c) -> Path:
         encoding="utf-8",
     )
     db.record_post(item["id"], platform, "staged")
-    notify(f"📲 Ready to post on **{platform}** ({c.display}): `{video.name}`\n{item['title']}\n{_submit_note(c)}")
+    notify(f"📲 Ready to post on **{platform}** ({c.display}): `{video.name}`\n{item['title']}\n{_submit_note(c, item, platform)}")
     return video
 
 
@@ -117,7 +130,7 @@ def post_one(clip_id: str, platform: str) -> str:
         db.record_post(clip_id, platform, "failed", error=str(exc)[:500])
         raise
     db.record_post(clip_id, platform, "posted", remote_id=remote_id, url=url)
-    notify(f"✅ Posted on **{platform}**: {url}\n{_submit_note(c)}")
+    notify(f"✅ Posted on **{platform}**: {url}\n{_submit_note(c, item, platform)}")
     return url
 
 
@@ -128,7 +141,7 @@ def mark_posted(clip_id: str, platform: str, url: str):
     db.record_post(clip_id, platform, "posted", url=url)
     c = load_campaigns().get(item.get("campaign") or "")
     if c:
-        print(_submit_note(c).replace("**", ""))
+        print(_submit_note(c, item, platform).replace("**", ""))
 
 
 def post_due() -> list[tuple[str, str, str]]:

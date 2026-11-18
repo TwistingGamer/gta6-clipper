@@ -90,6 +90,11 @@ def get_clip(clip_id: str) -> dict | None:
     return item
 
 
+def clip_exists_for(source: str, start_s: float) -> bool:
+    with connect() as con:
+        return con.execute("SELECT 1 FROM clips WHERE source=? AND start_s=?", (source, start_s)).fetchone() is not None
+
+
 def set_status(clip_id: str, status: str):
     with connect() as con:
         con.execute("UPDATE clips SET status=? WHERE id=?", (status, clip_id))
@@ -137,7 +142,7 @@ def unposted_for_platform(platform: str) -> list[dict]:
 def posts_between(since_iso: str) -> list[dict]:
     with connect() as con:
         return [dict(r) for r in con.execute(
-            "SELECT p.*, c.campaign, c.title, c.output FROM posts p JOIN clips c ON c.id=p.clip_id "
+            "SELECT p.*, c.campaign, c.title, c.output, c.reasons FROM posts p JOIN clips c ON c.id=p.clip_id "
             "WHERE p.status='posted' AND p.posted_at>=? ORDER BY p.posted_at", (since_iso,))]
 
 

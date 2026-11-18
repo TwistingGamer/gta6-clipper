@@ -90,6 +90,21 @@ class CampaignTest(unittest.TestCase):
         self.assertTrue(desc.startswith("#ad Paid partnership with Expedia"))
 
 
+class CoreRulesTest(unittest.TestCase):
+    def test_core_example_config(self):
+        c = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")["core-pool"]
+        self.assertEqual(c.min_members, 2)
+        self.assertFalse(c.ai_text_allowed)
+        self.assertNotIn("youtube_channel", [i.type for i in c.inputs])  # CORE YouTube goes to the 5K pool
+        self.assertEqual(c.expires_on, "2026-11-30")
+        title, desc, tags = package(c, {"title": "", "description": "", "hook": "", "hashtags": []}, ["Lacy", "Silky"], "lacy")
+        self.assertIn("Lacy & Silky", title)
+        self.assertIn("CORE", title + desc)
+        for t in ("#CORE", "#Lacy", "#Silky"):
+            self.assertIn(t, tags)
+        self.assertNotIn("twitch.tv", desc)  # show_credit: false
+
+
 class ChatTest(unittest.TestCase):
     def test_spike_detected(self):
         login = f"unittest_{int(time.time())}"

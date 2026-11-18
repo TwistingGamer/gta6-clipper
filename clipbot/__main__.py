@@ -59,7 +59,7 @@ class LiveWatcher:
             online = {}
         wanted = set()
         for c, inp in live_inputs:
-            key = f"{c.id}:{inp.type}:{inp.login}"
+            key = inp.url  # one recorder per stream, even if several campaigns list it
             if not self._is_live(c, inp, online):
                 continue
             wanted.add(key)
@@ -75,7 +75,7 @@ class LiveWatcher:
         for key in list(self.captures):
             if key not in wanted:
                 self.captures.pop(key).clear()
-        live_logins = {k.split(":")[2] for k in wanted if k.split(":")[1] == "twitch"}
+        live_logins = {i.login for c, i in live_inputs if i.type == "twitch" and i.url in wanted}
         for login in list(self.chats):
             if login not in live_logins:
                 self.chats.pop(login).stop()
@@ -149,7 +149,13 @@ def cmd_report(days: int):
         return
     by = {}
     for r in rows:
-        by.setdefault(r["campaign"], []).append(r)
+        try:
+            reasons = json.loads(r.get("reasons") or "{}")
+        except (TypeError, ValueError):
+            reasons = {}
+        from .publish import submit_targets
+        for t in submit_targets({"campaign": r["campaign"], "reasons": reasons}, r["platform"]):
+            by.setdefault(t, []).append(r)
     campaigns = load_campaigns()
     for cid, posts in by.items():
         c = campaigns.get(cid)

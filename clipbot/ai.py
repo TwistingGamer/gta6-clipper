@@ -24,8 +24,10 @@ SCHEMA = {
         "hook": {"type": "string", "description": "On-screen text for the first seconds, max 7 words"},
         "description": {"type": "string"},
         "hashtags": {"type": "array", "items": {"type": "string"}},
+        "people": {"type": "array", "items": {"type": "string"},
+                   "description": "Names from the campaign's member list who are clearly on screen or speaking"},
     },
-    "required": ["keep", "score", "why", "title", "hook", "description", "hashtags"],
+    "required": ["keep", "score", "why", "title", "hook", "description", "hashtags", "people"],
     "additionalProperties": False,
 }
 
@@ -47,7 +49,7 @@ def template_text(campaign) -> dict:
         "keep": True, "score": 5, "why": "heuristic only (no AI judge)",
         "title": title, "hook": "",
         "description": title + ".",
-        "hashtags": [],
+        "hashtags": [], "people": [],
     }
 
 
@@ -70,6 +72,9 @@ def judge(frames: list[Path], transcript: str, campaign, signals: dict) -> dict:
         "text": (f"Campaign: {campaign.display}\n"
                  f"Content rule: {campaign.content_rule or '(none)'}\n"
                  f"Must mention: {', '.join(campaign.required_words) or '(nothing)'}\n"
+                 f"Campaign members (report who is present in 'people'): "
+                 f"{', '.join(m['name'] for m in campaign.members) or '(none)'}\n"
+                 f"Minimum members on screen: {campaign.min_members or '(no minimum)'}\n"
                  f"Language: {campaign.language}\n"
                  f"Series/theme: {campaign.series or '(none)'}\n"
                  f"Signals (0-1): {json.dumps(signals)}\n"

@@ -9,7 +9,10 @@ from pathlib import Path
 
 from . import db
 from .config import DATA, FFMPEG, ROOT, STREAMLINK
+from .config import RECORDINGS
 from .sources import Campaign, Input
+
+LIVE_DIR = RECORDINGS / "_live"   # one recording per streamer, shared by every campaign that lists them
 
 LOG = logging.getLogger("clipbot.fetch")
 
@@ -120,7 +123,8 @@ def capture_segment(campaign: Campaign, inp: Input, seconds: int) -> Path:
     ok, why = campaign.authorized()
     if not ok or not campaign.allow_recording:
         raise PermissionError(f"{campaign.id}: recording not permitted ({why if not ok else 'allow_recording is false'})")
-    out = campaign.folder / f"{inp.login}__{int(time.time())}.mp4"
+    LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    out = LIVE_DIR / f"{inp.login}__{int(time.time())}.mp4"
     cmd = [STREAMLINK, "--stdout", inp.url, "best"]
     if Path(FFMPEG).parent != Path("."):
         cmd[1:1] = ["--ffmpeg-ffmpeg", FFMPEG]
