@@ -290,6 +290,11 @@ def main():
     st.add_argument("campaign"); st.add_argument("field"); st.add_argument("value")
     args = ap.parse_args()
     db.init_db()
+    if args.cmd in ("run", "scan", "sample", "fetch"):
+        from .config import missing_tools
+        problems = missing_tools(need_streamlink=args.cmd in ("run", "sample"))
+        if problems:
+            raise SystemExit("Can't start:\n  " + "\n  ".join(problems))
 
     if args.cmd == "run":
         daemon()

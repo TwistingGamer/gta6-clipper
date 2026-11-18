@@ -14,6 +14,19 @@ def _rfc3339(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+NOT_GAMEPLAY = ("countdown", "watch party", "watchparty", "rerun", "re-run", "trailer", "news", "podcast",
+                "reacting to", "reaction", "waiting for", "launch party", "until gta", "24/7 music")
+SKIP_CHANNELS = {"twitch", "twitchgaming", "rockstargames", "twitchrivals"}
+
+
+def is_gameplay(stream: dict) -> bool:
+    """Skip official/brand channels and countdown/watch-party style streams."""
+    if stream.get("user_login", "").lower() in SKIP_CHANNELS:
+        return False
+    title = (stream.get("title") or "").lower()
+    return not any(w in title for w in NOT_GAMEPLAY)
+
+
 class Twitch:
     def __init__(self):
         self.client_id = os.getenv("TWITCH_CLIENT_ID", "")
@@ -73,7 +86,7 @@ class Twitch:
         params = [("game_id", g) for g in games] + [("first", "100")]
         if language:
             params.append(("language", language))
-        streams = self._get("streams", params).get("data", [])
+        streams = [s for s in self._get("streams", params).get("data", []) if is_gameplay(s)]
         streams.sort(key=lambda s: s.get("viewer_count", 0), reverse=True)
         return streams[:limit]
 
