@@ -15,31 +15,34 @@ Started from a ChatGPT-built MVP. Kept its FFmpeg pipeline and permission-first 
 > marks it active with permission evidence (its rules-page link). Strikes on Reach campaigns are permanent,
 > so keep clip review on.
 
-## Setup (Windows)
+## Setup (Windows, everything on D:)
 
-Works on **Python 3.10 to 3.13** (tested on 3.13). In PowerShell:
+Works on **Python 3.10 to 3.13** (tested on 3.13). Nothing below writes to C:. The Python environment,
+Streamlink, recordings, clips, temp files and the downloaded speech model all live in the bot's folder.
+
+1. **FFmpeg:** download the "essentials" build zip from gyan.dev and extract it to `D:\tools`.
+   You'll get a folder like `D:\tools\ffmpeg-<version>-essentials_build\bin`. It doesn't need to be on PATH.
+2. **The bot:** extract `campaign-clipbot.zip` to `D:\campaign-clipbot`.
+3. In PowerShell:
 
 ```powershell
-# 1. Tools (FFmpeg and Streamlink), one time
-winget install Gyan.FFmpeg
-winget install Streamlink.Streamlink
-#    then close and reopen PowerShell so they're on PATH
-
-# 2. Unzip the bot into its own folder and go into it
-Expand-Archive "$HOME\Downloads\campaign-clipbot.zip" -DestinationPath "$HOME\clipbot"
-cd "$HOME\clipbot"
-
-# 3. Python environment
+$env:TEMP = "D:\tmp"; $env:TMP = "D:\tmp"; $env:PIP_CACHE_DIR = "D:\pipcache"   # keep pip off C:
+New-Item -ItemType Directory -Force D:\tmp, D:\pipcache | Out-Null
+cd D:\campaign-clipbot
 py -3.13 -m venv .venv
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # only needed once, if Activate.ps1 is blocked
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # once, if Activate.ps1 is blocked (answer Y)
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 Copy-Item .env.example .env
 Copy-Item campaigns.example.yaml campaigns.yaml
+notepad .env
 ```
 
-Every time you open a new PowerShell window later: `cd "$HOME\clipbot"` then `.\.venv\Scripts\Activate.ps1`.
+4. In `.env`, set `FFMPEG_PATH` to your FFmpeg `bin` folder, without quotes. For example:
+   `FFMPEG_PATH=D:\tools\ffmpeg-8.0-essentials_build\bin`
+
+Every time you open a new PowerShell window later: `cd D:\campaign-clipbot` then `.\.venv\Scripts\Activate.ps1`.
 
 Then:
 

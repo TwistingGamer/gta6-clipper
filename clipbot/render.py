@@ -4,6 +4,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from .config import FFMPEG
+
 
 def filter_path(p: Path) -> str:
     # FFmpeg filter args need escaped Windows drive colons, quotes and brackets.
@@ -28,7 +30,7 @@ def render(source: Path, start: float, duration: float, dest: Path,
         graph += f";[{last}]subtitles=filename='{filter_path(overlay)}'[v2]"
         last = "v2"
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-ss", str(start), "-i", str(source), "-t", str(duration),
+        [FFMPEG, "-y", "-v", "error", "-ss", str(start), "-i", str(source), "-t", str(duration),
          "-filter_complex", graph, "-map", f"[{last}]", "-map", "0:a?",
          "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
          "-r", "30", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart", str(dest)],
@@ -43,7 +45,7 @@ def grab_frames(source: Path, start: float, duration: float, out_dir: Path, coun
         t = start + duration * (i + 0.5) / count
         p = out_dir / f"_frame_{int(start)}_{i}.jpg"
         subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", str(source), "-frames:v", "1",
+            [FFMPEG, "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", str(source), "-frames:v", "1",
              "-vf", "scale=768:-2", "-q:v", "4", str(p)],
             check=True,
         )

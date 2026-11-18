@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from . import db
-from .config import ROOT
+from .config import DATA, FFMPEG, ROOT, STREAMLINK
 from .sources import Campaign, Input
 
 LOG = logging.getLogger("clipbot.fetch")
@@ -54,6 +54,8 @@ def download_youtube(campaign: Campaign, inp: Input) -> list[Path]:
             "quiet": True, "noprogress": True, "outtmpl": str(out),
             "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b",
             "merge_output_format": "mp4",
+            "cachedir": str(DATA / "cache" / "yt-dlp"),
+            **({"ffmpeg_location": str(Path(FFMPEG).parent)} if Path(FFMPEG).parent != Path(".") else {}),
         }
         if inp.since:
             opts["daterange"] = yt_dlp.utils.DateRange(inp.since.replace("-", ""))
@@ -99,7 +101,7 @@ def folder_inputs(campaign: Campaign) -> list[Path]:
 def live_info(inp: Input) -> dict | None:
     """Streamlink metadata if the channel is live, else None. Works for Twitch and Kick."""
     try:
-        r = subprocess.run(["streamlink", "--json", inp.url], capture_output=True, text=True, timeout=45)
+        r = subprocess.run([STREAMLINK, "--json", inp.url], capture_output=True, text=True, timeout=45)
         data = json.loads(r.stdout or "{}")
     except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
         return None
@@ -119,7 +121,9 @@ def capture_segment(campaign: Campaign, inp: Input, seconds: int) -> Path:
     if not ok or not campaign.allow_recording:
         raise PermissionError(f"{campaign.id}: recording not permitted ({why if not ok else 'allow_recording is false'})")
     out = campaign.folder / f"{inp.login}__{int(time.time())}.mp4"
-    cmd = ["streamlink", "--stdout", inp.url, "best"]
+    cmd = [STREAMLINK, "--stdout", inp.url, "best"]
+    if Path(FFMPEG).parent != Path("."):
+        cmd[1:1] = ["--ffmpeg-ffmpeg", FFMPEG]
     if inp.type == "twitch":
         cmd.insert(2, "--twitch-disable-ads")
     elif inp.type == "youtube_live":
@@ -127,7 +131,7 @@ def capture_segment(campaign: Campaign, inp: Input, seconds: int) -> Path:
     producer = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
         result = subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", "pipe:0", "-t", str(seconds),
+            [FFMPEG, "-y", "-loglevel", "error", "-i", "pipe:0", "-t", str(seconds),
              "-c", "copy", "-movflags", "+faststart", str(out)],
             stdin=producer.stdout, timeout=seconds + 90,
         )

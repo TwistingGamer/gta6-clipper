@@ -15,6 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .config import FFMPEG, FFPROBE
+
 STEP = 10
 
 
@@ -28,7 +30,7 @@ class Candidate:
 
 def ffprobe_seconds(path: Path) -> float:
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        [FFPROBE, "-v", "error", "-show_entries", "format=duration",
          "-of", "default=nokey=1:noprint_wrappers=1", str(path)],
         check=True, text=True, capture_output=True,
     ).stdout.strip()
@@ -42,7 +44,7 @@ def n_windows(seconds: float, window: int) -> int:
 def audio_scores(path: Path, seconds: float, window: int) -> list[float]:
     """Per-window loudness score from 8 kHz mono PCM, normalised to this recording."""
     raw = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+        [FFMPEG, "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
         capture_output=True, check=True,
     ).stdout
     x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768

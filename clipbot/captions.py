@@ -6,7 +6,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from .config import DATA
+from .config import DATA, FFMPEG, MODELS
 
 _MODEL = None
 _LOCK = threading.Lock()
@@ -22,6 +22,7 @@ def whisper_model():
                 os.getenv("WHISPER_MODEL", "base"),
                 device=os.getenv("WHISPER_DEVICE", "cpu"),
                 compute_type=os.getenv("WHISPER_COMPUTE", "int8"),
+                download_root=str(MODELS / "whisper"),
             )
         return _MODEL
 
@@ -38,7 +39,7 @@ def transcribe(source: Path, start: float, duration: float, srt_out: Path, words
     """Write an SRT aligned to the clip and return the plain transcript."""
     tmp = DATA / f"_audio_{os.getpid()}_{threading.get_ident()}.wav"
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-ss", str(start), "-i", str(source), "-t", str(duration),
+        [FFMPEG, "-y", "-v", "error", "-ss", str(start), "-i", str(source), "-t", str(duration),
          "-ar", "16000", "-ac", "1", str(tmp)],
         check=True,
     )
