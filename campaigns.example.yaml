@@ -26,7 +26,7 @@ defaults: &defaults
 
 gta_campaign: &gta_campaign
   active: false
-  game_filter: grand theft auto
+  game_filter: gta6   # Twitch category "Grand Theft Auto VI" only; GTA V streams are skipped
   allow_recording: true
   platforms: [tiktok, instagram, youtube]
   ai_text_allowed: false          # Reach: assume AI-generated content is banned
@@ -41,7 +41,7 @@ gta_campaign: &gta_campaign
 gta_tolerated: &gta_tolerated
   active: false
   permission: {type: tolerated, evidence: ""}
-  game_filter: grand theft auto
+  game_filter: gta6   # Twitch category "Grand Theft Auto VI" only; GTA V streams are skipped
   allow_recording: true
   platforms: [tiktok, instagram, youtube]
   ai_text_allowed: true
@@ -122,7 +122,7 @@ campaigns:
     permission: {type: campaign, evidence: "https://contentrewards.com/discover/6d896f33-152f-42a9-92f4-662199228349"}
     inputs:
       - {type: twitch, target: lysium}           # CHECK login
-    game_filter: ""                              # GTA RP (NoPixel): category varies
+    game_filter: "gta5, gta6"                    # their campaign is GTA RP, which runs on GTA V for now
     platforms: [tiktok, instagram, youtube, x]
     payout: {cpm: 1.5, min: 15, max: 150}
     clip_preapproval: true                       # every clip needs their OK before posting
@@ -180,7 +180,7 @@ campaigns:
       - {type: kick, target: lordkebun}
       - {type: twitch, target: dasmehdi}
       - {type: twitch, target: penta}
-    game_filter: ""
+    game_filter: gta6
     title_template: "GTA RP moment"
     required_hashtags: ["#GTARP"]
 
@@ -191,6 +191,18 @@ campaigns:
       - {type: twitch, target: jynxzi}
     title_template: "Jynxzi in GTA 6"
     required_hashtags: ["#Jynxzi", "#GTA6"]
+
+  # ---- Your own posts (announcements made with `python -m clipbot announce`) ----
+  - id: own
+    name: Your own posts
+    <<: *defaults
+    active: true
+    permission: {type: own, evidence: "original posts you make yourself (no stream footage)"}
+    inputs: []
+    platforms: [tiktok, instagram, youtube, x]
+    submit: false
+    show_credit: false
+    require_review: true
 
   # ---- Any live GTA stream (your own channels, no campaign) ----
   # Follows the biggest live GTA V / GTA 6 streams on Twitch that no campaign above covers
@@ -253,7 +265,7 @@ campaigns:
       - {type: twitch, target: marlon}
       # CORE's TikTok/Instagram/X posts are also allowed sources: save them in this folder by hand.
       - {type: folder, target: "recordings/core-pool/manual"}
-    game_filter: grand theft auto  # your page is GTA, so only record their GTA streams
+    game_filter: gta6  # your page is GTA 6, so only record their GTA VI streams
     allow_recording: true
     platforms: [tiktok, instagram, youtube, x]
     ai_text_allowed: false         # "AI-generated content ... removes you from every Reach campaign"
@@ -261,6 +273,7 @@ campaigns:
     required_words: [CORE]         # caption/overlay must mention CORE or member names
     required_hashtags: ["#CORE", "#GTA6"]           # + one hashtag per member in the clip (added automatically)
     show_credit: false             # no logos; keep on-screen text to what the rules ask for
+    my_watermark: false            # "Logos of any kind are not allowed": no @ watermark either
     require_review: true           # one strike = banned from every Reach campaign
     post_hours: "10-23"            # submit each link within 30 min of posting, so post while awake
     submit_within_minutes: 30
@@ -283,6 +296,7 @@ campaigns:
     inputs:
       - {type: youtube_channel, target: "https://www.youtube.com/@createownruneverything", max_videos: 5}
     platforms: [tiktok, instagram, youtube, x]
+    my_watermark: false            # CORE rules ban logos; assume the same here until checked
     notes: "Pool campaign, MVR 700K total views. CHECK rules page."
 
   - id: tjr
@@ -343,6 +357,7 @@ campaigns:
     required_words: [Expedia]      # "the video must mention Expedia"
     required_hashtags: ["#IShowSpeed", "#Expedia"]
     show_credit: false             # no extra on-screen text/logos beyond Expedia's
+    my_watermark: false            # no logos besides Expedia's
     ad_disclosure: true            # rules don't say, but paid brand promotion needs disclosure (FTC)
     require_review: true           # one strike = permanent ban from all Reach campaigns
     post_hours: "9-22"             # links must be submitted in Content Rewards within 30 min

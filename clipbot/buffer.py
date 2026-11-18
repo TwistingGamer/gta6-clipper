@@ -8,6 +8,7 @@ clipping pipeline then picks up. Disk use stays flat (~0.5 GB per live stream).
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -91,7 +92,7 @@ class RollingBuffer(threading.Thread):
                     pass  # piece still open on Windows; next round
 
     # ---- cutting ----
-    def cut(self, t_from: float, t_to: float) -> Path | None:
+    def cut(self, t_from: float, t_to: float, meta: dict | None = None) -> Path | None:
         """Join the pieces covering [t_from, t_to] into one mp4 for the clipping pipeline."""
         with self._lock:
             pieces = []
@@ -125,20 +126,22 @@ class RollingBuffer(threading.Thread):
                                 "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", str(tmp)],
                                check=True)
                 tmp.replace(out)
+                if meta:  # which game was on screen, checked again by each campaign at clip time
+                    out.with_suffix(".json").write_text(json.dumps(meta), encoding="utf-8")
             finally:
                 lst.unlink(missing_ok=True)
                 tmp.unlink(missing_ok=True)
             return out
 
 
-def schedule_cut(buffer: RollingBuffer, t_event: float):
+def schedule_cut(buffer: RollingBuffer, t_event: float, meta: dict | None = None):
     """Chat reacts a few seconds after the action, so keep PRE seconds before the spike
     and POST after; wait until the POST part has been buffered, then cut."""
     pre, post = env_int("MOMENT_PRE_SECONDS", 60), env_int("MOMENT_POST_SECONDS", 20)
 
     def _do():
         try:
-            path = buffer.cut(t_event - pre, t_event + post)
+            path = buffer.cut(t_event - pre, t_event + post, meta)
             LOG.info("moment saved: %s", path) if path else LOG.warning("no buffered video for moment on %s", buffer.login)
         except Exception as exc:
             LOG.warning("cutting moment for %s failed: %s", buffer.login, exc)

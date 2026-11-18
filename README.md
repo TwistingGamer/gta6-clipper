@@ -87,9 +87,27 @@ Each clip is 1080x1920. When the stream has a webcam, the streamer's face goes o
 the streamer credit at the bottom. With an `ANTHROPIC_API_KEY` each clip also opens with a short hook line that
 explains what's going on. If the facecam is missed, set `FACECAM=x,y,w,h` (fractions of the frame) in `.env`.
 
+**Vice City look:** captions are chunky white letters with a pink / cyan neon glow, the hook line is a hot-pink script,
+and your `@gta6.clippaa` watermark sits small in the top-right corner (`WATERMARK_TEXT`). Campaigns that ban logos
+(CORE, Expedia) have `my_watermark: false`, so their clips carry no watermark. A logo image can be added later with
+`WATERMARK_IMAGE`. `CAPTION_STYLE=plain` goes back to white Arial. Fonts: Pacifico and Bungee (SIL Open Font License),
+no Rockstar logos, fonts or artwork.
+
+**GTA 6 only:** campaigns with `game_filter: gta6` only record streams whose Twitch category is exactly
+"Grand Theft Auto VI" (GTA V is skipped), and the category is checked again the moment chat spikes, because streamers
+switch games mid-stream. A campaign can allow GTA V explicitly with `game_filter: "gta5, gta6"` (Lysium's GTA RP does).
+
+## Announcement posts
+
+```powershell
+python -m clipbot announce "Kai Cenat" "TONIGHT 8 PM ET" --when2 "5 PM PT" --where twitch.tv/kaicenat --tags "#KaiCenat #GTA6"
+```
+Makes an 8-second Vice City style card (original sunset/grid artwork, no logos or footage) and a caption, then puts it
+in the review queue under your own posts. Approve it and post it like any clip. Add a trending sound in the app.
+
 ## Clipping any GTA stream (gta-any)
 
-`python -m clipbot enable gta-any` follows the 4 biggest live GTA V / GTA 6 Twitch streams (any language, at least
+`python -m clipbot enable gta-any` follows the 4 biggest live GTA 6 Twitch streams (any language, at least
 300 viewers) that none of your campaigns covers, and clips them for **your own channels**: streamer credited on
 screen and in the caption, never submitted to a campaign, no story cutscenes or endings. Streamers that have a
 campaign entry (paid or tolerated, on or off) are never picked up here, so their own rules apply (e.g. IShowSpeed
@@ -103,6 +121,8 @@ python -m clipbot approve <ID>               # or: reject <ID>
 #   approved clips are staged in output\ready\<platform>\ (video + caption .txt) and you get a ping
 python -m clipbot posted <ID> tiktok <link>  # after you post it; reminds you to submit the link
 python -m clipbot report                     # today's links per campaign, for submitting
+#   once a clip has a link on every platform it was meant for, its video files are deleted (links are kept);
+#   rejected clips are deleted right away. `python -m clipbot done <ID>` deletes one by hand.
 ```
 
 **Warm-up:** with `ACCOUNTS_STARTED` set, each platform gets 1 post a day in week 1, 2 in week 2, and so on, up to `POSTS_PER_DAY`.

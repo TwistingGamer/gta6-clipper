@@ -83,7 +83,7 @@ class Campaign:
     cpm: float = 0.0               # $ per 1,000 views (used to prioritise posting slots)
     min_payout: float = 0.0
     max_payout: float = 0.0        # per platform submission
-    game_filter: str = ""          # e.g. "grand theft auto": only record live streams in this category
+    game_filter: str = ""          # "gta6" (GTA VI only), "gta5, gta6", or exact category names; "" = any
     allow_recording: bool = False  # may record live streams (twitch/kick inputs)
     min_clip_seconds: int = 15
     max_clip_seconds: int = 60
@@ -92,6 +92,7 @@ class Campaign:
     required_hashtags: list[str] = field(default_factory=list)
     required_mentions: list[str] = field(default_factory=list)
     watermark: str = ""            # on-screen text some campaigns require for the whole clip
+    my_watermark: bool = True      # your @handle (WATERMARK_TEXT / WATERMARK_IMAGE) on the clip; off where logos are banned
     bio_link: str = ""             # must be in your profile bio (manual; shown in the morning report)
     ad_disclosure: bool = False    # "#ad" on screen + caption + platform paid-promotion toggles
     ai_text_allowed: bool = True   # False: no AI-written titles/hooks (some campaigns ban AI content)
@@ -117,6 +118,21 @@ class Campaign:
     discover_limit: int = 4        # how many discovered streams to watch at once (each one uses bandwidth)
     discover_min_viewers: int = 300
     discover_exclude: list[str] = field(default_factory=list)  # logins never to pick up
+
+    def games(self) -> set[str] | None:
+        """Exact stream categories allowed (lowercase), or None for any category."""
+        return parse_games(self.game_filter)
+
+    def game_ok(self, category: str | None, title: str | None = None) -> bool:
+        """Is a live stream in an allowed game? Exact category match (GTA V never passes for gta6).
+        Platforms that give no game category (YouTube) fall back to the stream title."""
+        allowed = self.games()
+        if allowed is None:
+            return True
+        cat = (category or "").strip().lower()
+        if cat:
+            return cat in allowed
+        return bool(title) and any(rx.search(title) for g in allowed for rx in TITLE_HINTS.get(g, []))
 
     @property
     def display(self) -> str:
@@ -210,6 +226,30 @@ class Campaign:
         if not re.fullmatch(r"[a-z0-9_-]+", self.id):
             out.append("id must be lowercase letters, digits, - or _")
         return out
+
+
+GTA6 = "grand theft auto vi"
+GTA5 = "grand theft auto v"
+GAME_ALIASES = {
+    "gta6": {GTA6}, "gta 6": {GTA6}, "gtavi": {GTA6}, "gta vi": {GTA6}, "grand theft auto 6": {GTA6},
+    GTA6: {GTA6},
+    "gta5": {GTA5}, "gta 5": {GTA5}, "gtav": {GTA5}, "gta v": {GTA5}, GTA5: {GTA5},
+    # Old setting "grand theft auto" (any GTA) now means GTA VI only. Allow GTA V explicitly with "gta5".
+    "grand theft auto": {GTA6}, "gta": {GTA6},
+}
+CATEGORY_NAMES = {GTA6: "Grand Theft Auto VI", GTA5: "Grand Theft Auto V"}  # Twitch's spelling
+TITLE_HINTS = {GTA6: [re.compile(r"\b(gta|grand theft auto)\s*(6|vi)\b", re.I)],
+               GTA5: [re.compile(r"\b(gta|grand theft auto)\s*(5|v)\b", re.I)]}
+
+
+def parse_games(spec: str | list | None) -> set[str] | None:
+    parts = spec if isinstance(spec, list) else str(spec or "").split(",")
+    out: set[str] = set()
+    for part in parts:
+        key = str(part).strip().lower()
+        if key:
+            out |= GAME_ALIASES.get(key, {key})
+    return out or None
 
 
 def _campaign(entry: dict) -> Campaign:

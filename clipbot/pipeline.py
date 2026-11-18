@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import os
@@ -12,7 +13,7 @@ from . import ai, chat, db, detect, layout
 from .captions import overlay_ass, transcribe
 from .config import OUTPUT, VIDEO_EXTS, env_bool, env_float, env_int
 from .fetch import LIVE_DIR, folder_inputs
-from .render import grab_frames, render
+from .render import grab_frames, render, watermark_image
 from .sources import Campaign, authorized_campaigns
 
 LOG = logging.getLogger("clipbot.pipeline")
@@ -71,6 +72,14 @@ def process_file(path: Path, campaign: Campaign, *, twitch=None) -> int:
     ok, why = campaign.authorized()
     if not ok:
         raise PermissionError(f"{campaign.id} not authorized ({why})")
+    side = path.with_suffix(".json")  # saved live moments record which game was on screen
+    if side.exists():
+        try:
+            meta = json.loads(side.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        if meta.get("category") is not None and not campaign.game_ok(meta.get("category"), meta.get("title")):
+            return 0
     stat = path.stat()
     key = f"{campaign.id}|{path}"  # shared live recordings are processed once per campaign
     with db.connect() as con:
@@ -166,10 +175,12 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
         overlay = OUTPUT / f"{stem}.ass"
         hook = verdict.get("hook", "") if c.ai_text_allowed else ""
         ad_label = os.getenv("AD_LABEL", "Paid partnership #ad") if c.ad_disclosure else ""
-        overlay_ass(overlay, cand.duration, hook, c.watermark or c.credit_for(login), ad_label)
-        dest = OUTPUT / f"{stem}.mp4"
+        mark = os.getenv("WATERMARK_TEXT", "@gta6.clippaa").strip() if c.my_watermark else ""
         frame = layout.choose(path, cand.start, cand.duration)
-        render(path, cand.start, cand.duration, dest, srt=srt, overlay=overlay, layout=frame)
+        overlay_ass(overlay, cand.duration, hook, c.watermark or c.credit_for(login), ad_label, mark, frame.hook_top)
+        dest = OUTPUT / f"{stem}.mp4"
+        render(path, cand.start, cand.duration, dest, srt=srt, overlay=overlay, layout=frame,
+               logo=watermark_image() if c.my_watermark else None)
         used.append((cand.start, cand.start + cand.duration))
 
         db.insert_clip({

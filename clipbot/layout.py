@@ -34,6 +34,11 @@ class Layout:
     src: tuple[int, int] = (1920, 1080)
 
     @property
+    def hook_top(self) -> int:
+        """Top of the hook text: across the seam between facecam and gameplay, else near the top."""
+        return CAM_H - 70 if self.mode == "split" else 230
+
+    @property
     def caption_y(self) -> int:
         """Where captions sit, in pixels from the bottom of the 1920-high frame."""
         if self.mode == "split":

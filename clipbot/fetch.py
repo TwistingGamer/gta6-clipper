@@ -113,8 +113,8 @@ def live_info(inp: Input) -> dict | None:
     return data.get("metadata") or {}
 
 
-def category_ok(campaign: Campaign, category: str | None) -> bool:
-    return not campaign.game_filter or campaign.game_filter.lower() in (category or "").lower()
+def category_ok(campaign: Campaign, category: str | None, title: str | None = None) -> bool:
+    return campaign.game_ok(category, title)
 
 
 def capture_segment(campaign: Campaign, inp: Input, seconds: int) -> Path:

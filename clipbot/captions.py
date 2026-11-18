@@ -85,22 +85,86 @@ def ass_ts(seconds: float) -> str:
     return f"{h}:{m:02}:{s:02}.{cs:02}"
 
 
-def overlay_ass(path: Path, duration: float, hook: str, credit: str, ad_label: str = ""):
-    """Hook text at the top for the first seconds, creator credit for the whole clip."""
+# ---- Look: "vice" = 80s Miami neon (hot pink / cyan / sunset orange, glow), "plain" = white Arial ----
+FONTS_DIR = Path(__file__).resolve().parent / "fonts"
+# ASS colours are &HAABBGGRR
+PINK, CYAN, ORANGE, WHITE, NIGHT = "&H00952DFF", "&H00FFE500", "&H003D8AFF", "&H00FFFFFF", "&H00401A2E"
+
+
+def style() -> str:
+    return os.getenv("CAPTION_STYLE", "vice").lower()
+
+
+def _header(styles: list[str]) -> str:
+    return ("[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 0\n\n[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
+            "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+            + "".join(styles)
+            + "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+
+
+def _style(name, font, size, colour, outline_colour, back, bold, border, outline, shadow, align, ml, mr, mv, spacing=0):
+    return (f"Style: {name},{font},{size},{colour},{colour},{outline_colour},{back},{bold},0,0,0,100,100,{spacing},0,"
+            f"{border},{outline},{shadow},{align},{ml},{mr},{mv},1\n")
+
+
+def _srt_entries(srt: Path) -> list[tuple[float, float, str]]:
+    def secs(t: str) -> float:
+        h, m, rest = t.strip().split(":")
+        sec, ms = rest.split(",")
+        return int(h) * 3600 + int(m) * 60 + int(sec) + int(ms) / 1000
+    out = []
+    for block in srt.read_text(encoding="utf-8").strip().split("\n\n"):
+        lines = [l for l in block.splitlines() if l.strip()]
+        if len(lines) >= 3 and "-->" in lines[1]:
+            a, b = lines[1].split("-->")
+            out.append((secs(a), secs(b), " ".join(lines[2:])))
+    return out
+
+
+def captions_ass(srt: Path, out: Path, y_from_bottom: int):
+    """Burned-in speech captions. Vice: chunky white letters with a neon glow that alternates pink / cyan."""
+    entries = _srt_entries(srt)
+    if style() == "plain":
+        head = _header([_style("Cap", "Arial", 100, WHITE, "&H00000000", "&H64000000", 1, 1, 7, 2, 2, 60, 60, y_from_bottom)])
+        body = "".join(f"Dialogue: 0,{ass_ts(a)},{ass_ts(b)},Cap,,0,0,0,,{_ass_escape(t)}\n" for a, b, t in entries)
+    else:
+        head = _header([
+            _style("Glow", "Bungee", 116, WHITE, PINK, "&H00000000", 0, 1, 14, 0, 2, 60, 60, y_from_bottom),
+            _style("Cap", "Bungee", 116, WHITE, NIGHT, "&H96000000", 0, 1, 5, 6, 2, 60, 60, y_from_bottom),
+        ])
+        body = ""
+        for i, (a, b, t) in enumerate(entries):
+            glow = PINK if i % 2 == 0 else CYAN
+            shadow = CYAN if i % 2 == 0 else PINK
+            txt = _ass_escape(t)
+            body += (f"Dialogue: 0,{ass_ts(a)},{ass_ts(b)},Glow,,0,0,0,,{{\\blur10\\3c{glow}\\fad(60,0)}}{txt}\n"
+                     f"Dialogue: 1,{ass_ts(a)},{ass_ts(b)},Cap,,0,0,0,,{{\\4c{shadow}\\fad(60,0)}}{txt}\n")
+    out.write_text(head + body, encoding="utf-8")
+
+
+def overlay_ass(path: Path, duration: float, hook: str, credit: str, ad_label: str = "", watermark: str = "",
+                hook_top: int = 230):
+    """Hook text at the top for the first seconds, creator credit, ad label and your @ watermark."""
     hook_end = min(duration, float(os.getenv("HOOK_SECONDS", "4")))
-    ad_line = (f"Dialogue: 1,{ass_ts(0)},{ass_ts(min(duration, 5))},Ad,,0,0,0,,{_ass_escape(ad_label)}\n"
-               if ad_label else "")
-    hook_line = (f"Dialogue: 0,{ass_ts(0)},{ass_ts(hook_end)},Hook,,0,0,0,,{_ass_escape(hook)}\n"
-                 if hook else "")
-    path.write_text(
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
-        "[V4+ Styles]\n"
-        "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV\n"
-        "Style: Hook,Arial,78,&H00FFFFFF,&H00000000,&H64000000,1,1,6,2,8,60,60,230\n"
-        "Style: Credit,Arial,40,&H00FFFFFF,&H00000000,&H64000000,1,1,3,1,2,40,40,120\n"
-        "Style: Ad,Arial,44,&H00FFFFFF,&H00000000,&HB4000000,1,3,2,0,7,40,40,60\n\n"
-        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-        + hook_line + ad_line
-        + f"Dialogue: 0,{ass_ts(0)},{ass_ts(duration)},Credit,,0,0,0,,{_ass_escape(credit)}\n",
-        encoding="utf-8",
-    )
+    vice = style() != "plain"
+    styles = [
+        _style("Hook", "Pacifico", 104, PINK, NIGHT, "&H96000000", 0, 1, 6, 5, 8, 60, 60, hook_top) if vice else
+        _style("Hook", "Arial", 78, WHITE, "&H00000000", "&H64000000", 1, 1, 6, 2, 8, 60, 60, hook_top),
+        _style("HookGlow", "Pacifico", 104, PINK, CYAN, "&H00000000", 0, 1, 16, 0, 8, 60, 60, hook_top),
+        _style("Credit", "Bungee" if vice else "Arial", 38, WHITE, PINK if vice else "&H00000000", "&H64000000", 0 if vice else 1, 1, 3, 1, 2, 40, 40, 110),
+        _style("Ad", "Arial", 44, WHITE, "&H00000000", "&HB4000000", 1, 3, 2, 0, 7, 40, 40, 60),
+        _style("Mark", "Pacifico" if vice else "Arial", 52, ORANGE if vice else WHITE, PINK if vice else "&H00000000", "&H00000000", 0, 1, 2, 0, 9, 40, 44, 60),
+    ]
+    lines = []
+    if hook:
+        if vice:  # cyan neon glow behind crisp pink script
+            lines.append(f"Dialogue: 0,{ass_ts(0)},{ass_ts(hook_end)},HookGlow,,0,0,0,,{{\\blur12\\fad(150,200)}}{_ass_escape(hook)}")
+        lines.append(f"Dialogue: 1,{ass_ts(0)},{ass_ts(hook_end)},Hook,,0,0,0,,{{\\fad(150,200)}}{_ass_escape(hook)}")
+    if ad_label:
+        lines.append(f"Dialogue: 1,{ass_ts(0)},{ass_ts(min(duration, 5))},Ad,,0,0,0,,{_ass_escape(ad_label)}")
+    if credit:
+        lines.append(f"Dialogue: 0,{ass_ts(0)},{ass_ts(duration)},Credit,,0,0,0,,{_ass_escape(credit)}")
+    if watermark:  # subtle: 35% see-through, top right
+        lines.append(f"Dialogue: 0,{ass_ts(0)},{ass_ts(duration)},Mark,,0,0,0,,{{\\alpha&H59&}}{_ass_escape(watermark)}")
+    path.write_text(_header(styles) + "".join(l + "\n" for l in lines), encoding="utf-8")

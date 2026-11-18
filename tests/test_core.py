@@ -57,7 +57,7 @@ class CampaignTest(unittest.TestCase):
     def test_example_file_all_inactive(self):
         cs = load_campaigns(example=Path(__file__).resolve().parents[1] / "campaigns.example.yaml", path=Path("/nonexistent.yaml"))
         self.assertIn("expedia-ishowspeed", cs)
-        self.assertFalse(any(c.authorized()[0] for c in cs.values()))
+        self.assertEqual([c.id for c in cs.values() if c.authorized()[0]], ["own"])  # only your own posts are on by default
         self.assertFalse(any(c.problems() for c in cs.values()))
         e = cs["expedia-ishowspeed"]
         self.assertEqual(e.inputs[0].window, (9989.0, None))
@@ -124,6 +124,28 @@ class ContextTest(unittest.TestCase):
         self.assertAlmostEqual(out.duration, 35.0)
 
 
+class GameFilterTest(unittest.TestCase):
+    def test_gta6_only(self):
+        c = Campaign("a", game_filter="gta6")
+        self.assertTrue(c.game_ok("Grand Theft Auto VI"))
+        self.assertFalse(c.game_ok("Grand Theft Auto V"))
+        self.assertFalse(c.game_ok("Just Chatting"))
+        self.assertTrue(c.game_ok("", "FIRST DAY OF GTA 6 !!"))      # YouTube: no category, title says GTA 6
+        self.assertFalse(c.game_ok("", "gta 5 rp grind"))
+        self.assertFalse(Campaign("b", game_filter="grand theft auto").game_ok("Grand Theft Auto V"))  # old setting
+
+    def test_explicit_gta5_and_any(self):
+        c = Campaign("a", game_filter="gta5, gta6")
+        self.assertTrue(c.game_ok("Grand Theft Auto V") and c.game_ok("Grand Theft Auto VI"))
+        self.assertTrue(Campaign("b").game_ok("Minecraft"))
+
+    def test_example_campaigns_gta6(self):
+        cs = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")
+        for cid in ("kai-cenat-gta", "core-pool", "gta-any", "xqc-gta", "gta-rp"):
+            self.assertFalse(cs[cid].game_ok("Grand Theft Auto V"), cid)
+            self.assertTrue(cs[cid].game_ok("Grand Theft Auto VI"), cid)
+
+
 class DiscoverTest(unittest.TestCase):
     def test_gta_any_rules(self):
         cs = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")
@@ -154,6 +176,28 @@ class DiscoverTest(unittest.TestCase):
                 self.assertEqual(cs["gta-any"].live_logins(), {"newguy"})
             finally:
                 sources._discovered_path = orig
+
+
+class LookTest(unittest.TestCase):
+    def test_vice_captions_and_watermark(self):
+        from clipbot.captions import captions_ass
+        with tempfile.TemporaryDirectory() as d:
+            srt = Path(d) / "c.srt"
+            srt.write_text("1\n00:00:00,500 --> 00:00:02,000\nJUST GO\n\n2\n00:00:02,000 --> 00:00:03,000\nNOW\n")
+            out = Path(d) / "c.ass"
+            captions_ass(srt, out, 560)
+            text = out.read_text()
+            self.assertIn("Bungee", text)
+            self.assertEqual(text.count("JUST GO"), 2)   # glow layer + crisp layer
+            o = Path(d) / "o.ass"
+            overlay_ass(o, 30, "", "", "", "@gta6.clippaa")
+            self.assertIn("@gta6.clippaa", o.read_text())
+
+    def test_no_watermark_where_logos_banned(self):
+        cs = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")
+        self.assertFalse(cs["core-pool"].my_watermark)
+        self.assertFalse(cs["expedia-ishowspeed"].my_watermark)
+        self.assertTrue(cs["gta-any"].my_watermark)
 
 
 class ChatTest(unittest.TestCase):

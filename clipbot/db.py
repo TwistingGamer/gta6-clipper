@@ -127,6 +127,17 @@ def record_post(clip_id: str, platform: str, status: str, remote_id: str | None 
     write_queue_file(clip_id)
 
 
+def posted_platforms(clip_id: str) -> set[str]:
+    with connect() as con:
+        return {r["platform"] for r in con.execute(
+            "SELECT platform FROM posts WHERE clip_id=? AND status='posted'", (clip_id,))}
+
+
+def clips_for_source(source: str) -> list[dict]:
+    with connect() as con:
+        return [dict(r) for r in con.execute("SELECT id, status FROM clips WHERE source=?", (source,))]
+
+
 def unposted_for_platform(platform: str) -> list[dict]:
     """Approved clips not yet posted on this platform, best first."""
     with connect() as con:

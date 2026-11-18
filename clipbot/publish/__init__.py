@@ -135,6 +135,8 @@ def post_one(clip_id: str, platform: str) -> str:
         raise
     db.record_post(clip_id, platform, "posted", remote_id=remote_id, url=url)
     notify(f"✅ Posted on **{platform}**: {url}\n{_submit_note(c, item, platform)}")
+    if not still_to_post(item):
+        finish_clip(item)
     return url
 
 
@@ -146,6 +148,60 @@ def mark_posted(clip_id: str, platform: str, url: str):
     c = load_campaigns().get(item.get("campaign") or "")
     if c:
         print(_submit_note(c, item, platform).replace("**", ""))
+    left = still_to_post(item)
+    if left:
+        print(f"Still to post: {', '.join(left)}")
+    elif finish_clip(item):
+        print("Posted everywhere: video files deleted (links and details are kept).")
+
+
+def target_platforms(item: dict) -> list[str]:
+    """Platforms this clip is meant for: the campaign's platforms you post to (POST_PLATFORMS)."""
+    c = load_campaigns().get(item.get("campaign") or "")
+    allowed = c.platforms if c else list(PLATFORMS)
+    mine = [p for p in env_list("POST_PLATFORMS") if p in PLATFORMS] or list(PLATFORMS)
+    return [p for p in mine if p in allowed]
+
+
+def still_to_post(item: dict) -> list[str]:
+    done = db.posted_platforms(item["id"])
+    return [p for p in target_platforms(item) if p not in done]
+
+
+def delete_clip_files(item: dict) -> int:
+    """Remove a clip's video files (rendered clip, captions, staged copies). The database row and links stay."""
+    if env_bool("KEEP_POSTED_FILES"):
+        return 0
+    removed = 0
+    out = Path(item.get("output") or "")
+    paths = [out, out.with_suffix(".srt"), out.with_suffix(".ass"), out.with_suffix(".cap.ass")] if item.get("output") else []
+    for platform in PLATFORMS:
+        staged = READY / platform / f"{item.get('campaign')}_{item['id']}.mp4"
+        paths += [staged, staged.with_suffix(".txt")]
+    for p in paths:
+        try:
+            if p.is_file():
+                p.unlink()
+                removed += 1
+        except OSError as exc:
+            LOG.warning("could not delete %s: %s", p, exc)
+    # The saved live moment it came from, once no other clip still needs it.
+    from ..fetch import LIVE_DIR
+    src = Path(item.get("source") or "")
+    if src.is_file() and LIVE_DIR.resolve() in src.resolve().parents:
+        busy = [r for r in db.clips_for_source(item["source"])
+                if r["id"] != item["id"] and r["status"] not in ("done", "rejected", "sample")]
+        if not busy:
+            for p in (src, src.with_suffix(".json")):
+                p.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
+def finish_clip(item: dict) -> bool:
+    """Posted on every platform it was meant for: mark done and free the disk space."""
+    db.set_status(item["id"], "done")
+    return delete_clip_files(item) > 0
 
 
 def post_due() -> list[tuple[str, str, str]]:

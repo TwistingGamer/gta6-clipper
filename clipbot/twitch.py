@@ -78,15 +78,17 @@ class Twitch:
         return {g["id"]: g["name"] for g in data}
 
     def top_streams(self, game_names: list[str] | None = None, limit: int = 20, language: str | None = "en") -> list[dict]:
-        """Biggest live streams in the given categories (default: GTA V and GTA VI), by viewers."""
-        names = game_names or ["Grand Theft Auto VI", "Grand Theft Auto V"]
+        """Biggest live streams in the given categories (default: GTA VI only), by viewers.
+        Matched by Twitch game ID, so "Grand Theft Auto V" never sneaks in."""
+        names = game_names or ["Grand Theft Auto VI"]
         games = self.game_ids(names)
         if not games:
             return []
         params = [("game_id", g) for g in games] + [("first", "100")]
         if language:
             params.append(("language", language))
-        streams = [s for s in self._get("streams", params).get("data", []) if is_gameplay(s)]
+        streams = [s for s in self._get("streams", params).get("data", [])
+                   if is_gameplay(s) and s.get("game_id") in games]
         streams.sort(key=lambda s: s.get("viewer_count", 0), reverse=True)
         return streams[:limit]
 

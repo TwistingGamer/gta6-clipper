@@ -31,7 +31,7 @@ from .buffer import RollingBuffer, schedule_cut
 from .fetch import LIVE_DIR, capture_segment, category_ok, fetch_campaign, live_info
 from .pipeline import scan_all
 from .publish import daily_cap, mark_posted, mode, post_due, post_one
-from .sources import (LIVE_TYPES, add_discovered, authorized_campaigns, covered_logins, load_campaigns,
+from .sources import (CATEGORY_NAMES, LIVE_TYPES, add_discovered, authorized_campaigns, covered_logins, load_campaigns,
                       read_discovered, write_discovered)
 from .twitch import Twitch
 
@@ -47,6 +47,8 @@ class LiveWatcher:
         self.chats: dict[str, ChatLogger] = {}
         self.captures: dict[str, threading.Event] = {}
         self.buffers: dict[str, RollingBuffer] = {}
+        self.categories: dict[str, str] = {}  # latest game category per live stream
+        self.titles: dict[str, str] = {}
         self.discovering: set[str] = set()   # discovered streams being watched right now
         self._last_discover = 0.0
         self._warned_discover = False
@@ -57,17 +59,41 @@ class LiveWatcher:
 
     def on_spike(self, login: str, t: float, lift: float, hype: float):
         buf = self.buffers.get(login)
+        if buf and not self.still_in_game(buf.campaign, login):
+            LOG.info("chat spike on %s ignored: now streaming %r, not an allowed game",
+                     login, self.categories.get(login))
+            return
         LOG.info("chat spike on %s (x%.1f, %d%% hype)%s", login, lift, hype * 100,
                  "; saving the moment" if buf else "")
         if buf:
-            schedule_cut(buf, t)
+            schedule_cut(buf, t, {"category": self.categories.get(login, ""), "title": self.titles.get(login, "")})
+
+    def still_in_game(self, campaign, login: str) -> bool:
+        """Re-check the category right now: streamers switch games mid-stream."""
+        if campaign.games() is None:
+            return True
+        if self.twitch.configured:
+            try:
+                s = self.twitch.online([login]).get(login)
+            except Exception:
+                s = None
+            if s is not None:
+                self.categories[login] = s.get("game_name") or ""
+                self.titles[login] = s.get("title") or ""
+        return category_ok(campaign, self.categories.get(login), self.titles.get(login))
 
     def _is_live(self, campaign, inp, twitch_online) -> bool:
         if inp.type == "twitch" and self.twitch.configured:
             s = twitch_online.get(inp.login)
+            if s:
+                self.categories[inp.login] = s.get("game_name") or ""
+                self.titles[inp.login] = s.get("title") or ""
             return bool(s) and category_ok(campaign, s.get("game_name"))
         meta = live_info(inp)  # Kick / YouTube live (or Twitch without API keys)
-        return meta is not None and category_ok(campaign, meta.get("category"))
+        if meta is not None:
+            self.categories[inp.login] = meta.get("category") or ""
+            self.titles[inp.login] = meta.get("title") or ""
+        return meta is not None and category_ok(campaign, meta.get("category"), meta.get("title"))
 
     def discover(self, campaigns):
         """Pick up the biggest live GTA streams that no campaign covers (campaigns with discover: true)."""
@@ -90,7 +116,8 @@ class LiveWatcher:
         for c in finders:
             lang = None if c.language.lower() in ("", "any", "all") else c.language
             try:
-                streams = self.twitch.top_streams(limit=100, language=lang)
+                games = sorted(c.games() or {"grand theft auto vi"})
+                streams = self.twitch.top_streams([CATEGORY_NAMES.get(g, g) for g in games], limit=100, language=lang)
             except Exception as exc:
                 LOG.warning("GTA stream search failed: %s", exc)
                 return
@@ -168,7 +195,7 @@ def cleanup_old_recordings():
     """Saved moments/segments are only needed until they've been clipped."""
     hours = env_int("KEEP_RECORDINGS_HOURS", 24)
     cutoff = time.time() - hours * 3600
-    for p in LIVE_DIR.glob("*.mp4") if LIVE_DIR.exists() else []:
+    for p in [*LIVE_DIR.glob("*.mp4"), *LIVE_DIR.glob("*.json")] if LIVE_DIR.exists() else []:
         try:
             if p.stat().st_mtime < cutoff:
                 p.unlink()
@@ -336,9 +363,15 @@ def main():
     di = sp.add_parser("disable", help="switch a campaign off"); di.add_argument("campaign")
     st = sp.add_parser("set", help="override one field, e.g. set core-pool budget.used 500")
     st.add_argument("campaign"); st.add_argument("field"); st.add_argument("value")
+    an = sp.add_parser("announce", help="make a Vice City style 'streamer goes live' card to post")
+    an.add_argument("who"); an.add_argument("when")
+    an.add_argument("--what", default="STARTS GTA 6 LIVE"); an.add_argument("--when2", default="")
+    an.add_argument("--where", default=""); an.add_argument("--tags", default="#GTA6")
+    an.add_argument("--caption", default=""); an.add_argument("--seconds", type=float, default=8)
+    fin = sp.add_parser("done", help="mark a clip finished and delete its video files"); fin.add_argument("clip_id")
     args = ap.parse_args()
     db.init_db()
-    if args.cmd in ("run", "scan", "sample", "fetch"):
+    if args.cmd in ("run", "scan", "sample", "fetch", "announce"):
         from .config import missing_tools
         problems = missing_tools(need_streamlink=args.cmd in ("run", "sample"))
         if problems:
@@ -360,11 +393,27 @@ def main():
         cmd_approve(args.clip_id, args.streamer_approved)
     elif args.cmd == "reject":
         db.set_status(args.clip_id, "rejected")
-        print(f"{args.clip_id}: rejected")
+        from .publish import delete_clip_files
+        item = db.get_clip(args.clip_id)
+        gone = delete_clip_files(item) if item else 0
+        print(f"{args.clip_id}: rejected" + (", video files deleted" if gone else ""))
     elif args.cmd == "post":
         print(post_one(args.clip_id, args.platform))
     elif args.cmd == "posted":
         mark_posted(args.clip_id, args.platform, args.url)
+    elif args.cmd == "announce":
+        from .announce import run_announce
+        r = run_announce(args.who, args.when, args.what, args.when2, args.where, args.tags, args.caption, args.seconds)
+        print(f"Card ready: {r['output']}\n\nCaption:\n{r['description']}\n\n"
+              f"Watch it, then: python -m clipbot approve {r['id']}\n"
+              f"and post it now: python -m clipbot post {r['id']} tiktok   (also instagram, youtube, x)")
+    elif args.cmd == "done":
+        from .publish import finish_clip
+        item = db.get_clip(args.clip_id)
+        if not item:
+            raise SystemExit(f"No clip {args.clip_id}")
+        finish_clip(item)
+        print(f"{args.clip_id}: done, video files deleted")
     elif args.cmd == "report":
         cmd_report(args.days)
     elif args.cmd == "sample":
