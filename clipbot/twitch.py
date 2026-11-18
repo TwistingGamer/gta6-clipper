@@ -60,6 +60,23 @@ class Twitch:
             self._ids[login] = data[0]["id"]
         return self._ids[login]
 
+    def game_ids(self, names: list[str]) -> dict[str, str]:
+        data = self._get("games", [("name", n) for n in names]).get("data", [])
+        return {g["id"]: g["name"] for g in data}
+
+    def top_streams(self, game_names: list[str] | None = None, limit: int = 20, language: str | None = "en") -> list[dict]:
+        """Biggest live streams in the given categories (default: GTA V and GTA VI), by viewers."""
+        names = game_names or ["Grand Theft Auto VI", "Grand Theft Auto V"]
+        games = self.game_ids(names)
+        if not games:
+            return []
+        params = [("game_id", g) for g in games] + [("first", "100")]
+        if language:
+            params.append(("language", language))
+        streams = self._get("streams", params).get("data", [])
+        streams.sort(key=lambda s: s.get("viewer_count", 0), reverse=True)
+        return streams[:limit]
+
     def clips_between(self, login: str, start: float, end: float) -> list[tuple[float, int]]:
         """Clips viewers made during [start, end]: (approx. unix time of the moment, views)."""
         uid = self.user_id(login)

@@ -9,6 +9,7 @@ and append one JSON line per message to data/chat/<login>.jsonl.
 from __future__ import annotations
 
 import json
+import os
 import logging
 import random
 import re
@@ -33,13 +34,59 @@ def chat_file(login: str):
     return CHAT / f"{login.lower()}.jsonl"
 
 
-class ChatLogger(threading.Thread):
-    """Background thread that logs one channel's chat until stop() is called."""
+class SpikeDetector:
+    """Live 'something just happened' detector on the chat message rate.
 
-    def __init__(self, login: str):
+    Fires when the last ~8 seconds of chat run SPIKE_FACTOR times above the
+    channel's recent normal (median of the last 5 minutes) and enough of it is
+    hype (KEKW, "clip it", ...). One trigger per SPIKE_COOLDOWN seconds.
+    """
+
+    def __init__(self, on_spike, factor: float = 3.0, min_rate: float = 2.0, cooldown: float = 60.0):
+        self.on_spike = on_spike
+        self.factor, self.min_rate, self.cooldown = factor, min_rate, cooldown
+        self.counts: dict[int, list[int]] = {}   # second -> [messages, hype messages]
+        self.last_fire = 0.0
+
+    def add(self, t: float, text: str):
+        sec = int(t)
+        c = self.counts.setdefault(sec, [0, 0])
+        c[0] += 1
+        if HYPE.search(text):
+            c[1] += 1
+        self._check(sec)
+
+    def _check(self, now: int):
+        for old in [s for s in self.counts if s < now - 300]:
+            del self.counts[old]
+        if now - self.last_fire < self.cooldown or len(self.counts) < 30:
+            return
+        recent = [self.counts.get(s, [0, 0]) for s in range(now - 8, now + 1)]
+        rate = sum(c[0] for c in recent) / 9
+        hype = sum(c[1] for c in recent) / max(1, sum(c[0] for c in recent))
+        history = sorted(self.counts.get(s, [0, 0])[0] for s in range(now - 300, now - 8))
+        normal = max(0.5, history[len(history) // 2]) if history else 0.5
+        if rate >= self.min_rate and rate >= self.factor * normal and hype >= 0.15:
+            self.last_fire = now
+            self.on_spike(float(now), rate / normal, hype)
+
+
+class ChatLogger(threading.Thread):
+    """Background thread that logs one channel's chat until stop() is called,
+    and optionally calls on_spike(login, time, lift, hype) when chat erupts."""
+
+    def __init__(self, login: str, on_spike=None):
         super().__init__(daemon=True, name=f"chat-{login}")
         self.login = login.lower()
         self._halt = threading.Event()
+        self.detector = None
+        if on_spike:
+            self.detector = SpikeDetector(
+                lambda t, lift, hype: on_spike(self.login, t, lift, hype),
+                factor=float(os.getenv("SPIKE_FACTOR", "3")),
+                min_rate=float(os.getenv("SPIKE_MIN_RATE", "2")),
+                cooldown=float(os.getenv("SPIKE_COOLDOWN", "60")),
+            )
 
     def stop(self):
         self._halt.set()
@@ -76,7 +123,13 @@ class ChatLogger(threading.Thread):
                         sock.sendall(line.replace("PING", "PONG", 1).encode() + b"\r\n")
                     elif " PRIVMSG " in line:
                         text = line.split(" :", 1)[1] if " :" in line[1:] else ""
-                        out.write(json.dumps({"t": time.time(), "m": text[:200]}) + "\n")
+                        now = time.time()
+                        out.write(json.dumps({"t": now, "m": text[:200]}) + "\n")
+                        if self.detector:
+                            try:
+                                self.detector.add(now, text)
+                            except Exception:
+                                LOG.exception("spike detector error")
                 out.flush()
 
 

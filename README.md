@@ -61,6 +61,24 @@ Run it on a PC that stays on (sleep disabled), or a Windows Task Scheduler "at s
 python -m clipbot run
 ```
 
+## See it work: one preview clip
+
+```powershell
+python -m clipbot sample                # biggest live GTA stream right now (needs Twitch keys)
+python -m clipbot sample kaicenat       # or name any live Twitch channel
+```
+It records 3 minutes (`--minutes 5` for more) along with the chat, then makes one captioned vertical clip in
+`output\sample\`. Sample clips are never posted. `python -m clipbot discover` lists the biggest live GTA streams
+and whether any of your campaigns covers them.
+
+## How live clipping works
+
+The bot reads each streamer's Twitch chat live and keeps only the last few minutes of video (`CAPTURE_MODE=moments`).
+When chat suddenly runs about 3 times faster than normal with "KEKW / clip it / W" energy, it saves about 45 seconds before
+that moment and 20 seconds after it. The clipper then picks the best 15 to 60 seconds of that. Disk use stays around
+0.5 GB per live stream, and saved moments are deleted after a day. A short buffer works even when VODs are
+subscriber-only or deleted.
+
 ## Daily use
 
 ```powershell

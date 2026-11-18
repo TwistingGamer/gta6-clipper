@@ -132,7 +132,9 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
         finally:
             for f in frames:
                 f.unlink(missing_ok=True)
-        if not verdict.get("keep") or verdict.get("score", 0) < env_int("MIN_AI_SCORE", 6):
+        ai_ran = bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
+        # The score threshold only applies when the AI judge actually rated the clip.
+        if not verdict.get("keep") or (ai_ran and verdict.get("score", 0) < env_int("MIN_AI_SCORE", 6)):
             LOG.info("Skipped %s @%.0fs: %s", path.name, cand.start, verdict.get("why"))
             srt.unlink(missing_ok=True)
             continue
@@ -143,7 +145,6 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
         owner = c.member_for_login(login or "")
         if owner and owner["name"] not in people:
             people.insert(0, owner["name"])
-        ai_ran = bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
         if c.min_members and ai_ran and len(people) < c.min_members:
             LOG.info("Skipped %s @%.0fs: only %d member(s) on screen, campaign needs %d",
                      path.name, cand.start, len(people), c.min_members)

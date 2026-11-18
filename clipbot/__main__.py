@@ -19,6 +19,7 @@ import argparse
 import yaml
 import json
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -26,7 +27,8 @@ from datetime import datetime, timedelta, timezone
 from . import db
 from .chat import ChatLogger
 from .config import env_bool, env_int
-from .fetch import capture_segment, category_ok, fetch_campaign, live_info
+from .buffer import RollingBuffer, schedule_cut
+from .fetch import LIVE_DIR, capture_segment, category_ok, fetch_campaign, live_info
 from .pipeline import scan_all
 from .publish import daily_cap, mark_posted, mode, post_due, post_one
 from .sources import LIVE_TYPES, authorized_campaigns, load_campaigns
@@ -43,6 +45,18 @@ class LiveWatcher:
         self.twitch = Twitch()
         self.chats: dict[str, ChatLogger] = {}
         self.captures: dict[str, threading.Event] = {}
+        self.buffers: dict[str, RollingBuffer] = {}
+
+    @staticmethod
+    def moments_mode() -> bool:
+        return os.getenv("CAPTURE_MODE", "moments").lower() != "full"
+
+    def on_spike(self, login: str, t: float, lift: float, hype: float):
+        buf = self.buffers.get(login)
+        LOG.info("chat spike on %s (x%.1f, %d%% hype)%s", login, lift, hype * 100,
+                 "; saving the moment" if buf else "")
+        if buf:
+            schedule_cut(buf, t)
 
     def _is_live(self, campaign, inp, twitch_online) -> bool:
         if inp.type == "twitch" and self.twitch.configured:
@@ -67,9 +81,16 @@ class LiveWatcher:
             wanted.add(key)
             if inp.type == "twitch" and inp.login not in self.chats:
                 LOG.info("%s is live (%s)", inp.login, c.id)
-                self.chats[inp.login] = ChatLogger(inp.login)
+                self.chats[inp.login] = ChatLogger(inp.login, on_spike=self.on_spike)
                 self.chats[inp.login].start()
-            if c.allow_recording and env_bool("CAPTURE_STREAMS") and key not in self.captures:
+            recording_ok = c.allow_recording and env_bool("CAPTURE_STREAMS")
+            if recording_ok and self.moments_mode() and inp.type == "twitch":
+                # Watch chat, keep only a few minutes of video, save just the moments chat reacts to.
+                if inp.login not in self.buffers:
+                    self.buffers[inp.login] = RollingBuffer(c, inp)
+                    self.buffers[inp.login].start()
+                continue
+            if recording_ok and key not in self.captures:  # full mode, or Kick/YouTube (no chat signal)
                 flag = threading.Event()
                 flag.set()
                 threading.Thread(target=self._record, args=(c, inp, flag), daemon=True).start()
@@ -81,6 +102,9 @@ class LiveWatcher:
         for login in list(self.chats):
             if login not in live_logins:
                 self.chats.pop(login).stop()
+        for login in list(self.buffers):
+            if login not in live_logins:
+                self.buffers.pop(login).stop()
 
     @staticmethod
     def _record(campaign, inp, flag: threading.Event):
@@ -90,6 +114,18 @@ class LiveWatcher:
             except Exception as exc:
                 LOG.warning("Capture failed for %s: %s", inp.url, exc)
                 time.sleep(30)
+
+
+def cleanup_old_recordings():
+    """Saved moments/segments are only needed until they've been clipped."""
+    hours = env_int("KEEP_RECORDINGS_HOURS", 24)
+    cutoff = time.time() - hours * 3600
+    for p in LIVE_DIR.glob("*.mp4") if LIVE_DIR.exists() else []:
+        try:
+            if p.stat().st_mtime < cutoff:
+                p.unlink()
+        except OSError:
+            pass
 
 
 def daemon():
@@ -104,6 +140,7 @@ def daemon():
                 for c in campaigns.values():
                     fetch_campaign(c)
                 last_fetch = time.time()
+            cleanup_old_recordings()
             made = scan_all(watcher.twitch if watcher.twitch.configured else None)
             if made:
                 LOG.info("%d new clip(s) waiting for review", made)
@@ -195,6 +232,22 @@ def cmd_enable(cid: str, joined: str | None, evidence: str | None, on: bool = Tr
         print(f"{cid}: {'ON' if on else 'off'}")
 
 
+def cmd_discover():
+    tw = Twitch()
+    if not tw.configured:
+        raise SystemExit("Add TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET to .env first.")
+    covered = {}
+    for c in load_campaigns().values():
+        for i in c.inputs:
+            if i.type == "twitch":
+                covered.setdefault(i.login, []).append(c.id + ("" if c.authorized()[0] else " (off)"))
+    print("Biggest live GTA streams (English):")
+    for s in tw.top_streams(limit=25):
+        login = s["user_login"].lower()
+        where = ", ".join(covered.get(login, [])) or "no campaign: check their clipping rules before clipping"
+        print(f"  {s['viewer_count']:>7,}  {login:<20} {s['game_name']:<22} {where}")
+
+
 def cmd_set(cid: str, field: str, value: str):
     from .sources import read_settings, write_settings
     cid = cid.lower()
@@ -222,6 +275,9 @@ def main():
     pd = sp.add_parser("posted"); pd.add_argument("clip_id"); pd.add_argument("platform"); pd.add_argument("url")
     rp = sp.add_parser("report"); rp.add_argument("--days", type=int, default=1)
     au = sp.add_parser("auth"); au.add_argument("platform", choices=["youtube", "tiktok"])
+    sa = sp.add_parser("sample", help="record a few minutes of a live stream and make one preview clip (never posted)")
+    sa.add_argument("channel", nargs="?"); sa.add_argument("--minutes", type=float, default=3)
+    sp.add_parser("discover", help="biggest live GTA streams right now, and whether they're in a campaign")
     en = sp.add_parser("enable", help="switch a campaign on")
     en.add_argument("campaign"); en.add_argument("--joined", help="YYYY-MM-DD (default today)")
     en.add_argument("--evidence", help="campaign/rules link, if the example doesn't have it")
@@ -254,6 +310,11 @@ def main():
         mark_posted(args.clip_id, args.platform, args.url)
     elif args.cmd == "report":
         cmd_report(args.days)
+    elif args.cmd == "sample":
+        from .sample import run_sample
+        run_sample(args.channel, args.minutes)
+    elif args.cmd == "discover":
+        cmd_discover()
     elif args.cmd == "enable":
         cmd_enable(args.campaign, args.joined, args.evidence)
     elif args.cmd == "disable":
