@@ -1,0 +1,52 @@
+"""FFmpeg rendering: 1080x1920 vertical clip with blurred fill, captions and overlays."""
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+
+def filter_path(p: Path) -> str:
+    # FFmpeg filter args need escaped Windows drive colons, quotes and brackets.
+    return (p.resolve().as_posix().replace("\\", "\\\\").replace(":", "\\:")
+            .replace("'", "\\'").replace("[", "\\[").replace("]", "\\]"))
+
+
+def render(source: Path, start: float, duration: float, dest: Path,
+           srt: Path | None = None, overlay: Path | None = None):
+    graph = (
+        "[0:v]split=2[back][front];"
+        "[back]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=8:3,scale=1080:1920[bg];"  # blur small = fast
+        "[front]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v0]"
+    )
+    last = "v0"
+    if srt and srt.exists() and srt.stat().st_size:
+        graph += (f";[{last}]subtitles=filename='{filter_path(srt)}':"
+                  "force_style='FontName=Arial,FontSize=15,Bold=1,Alignment=2,MarginV=75,Outline=3,Shadow=1'[v1]")
+        last = "v1"
+    if overlay and overlay.exists():
+        graph += f";[{last}]subtitles=filename='{filter_path(overlay)}'[v2]"
+        last = "v2"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-ss", str(start), "-i", str(source), "-t", str(duration),
+         "-filter_complex", graph, "-map", f"[{last}]", "-map", "0:a?",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
+         "-r", "30", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart", str(dest)],
+        check=True,
+    )
+
+
+def grab_frames(source: Path, start: float, duration: float, out_dir: Path, count: int = 4) -> list[Path]:
+    """JPEG stills spread across the window, for the AI judge."""
+    frames = []
+    for i in range(count):
+        t = start + duration * (i + 0.5) / count
+        p = out_dir / f"_frame_{int(start)}_{i}.jpg"
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.2f}", "-i", str(source), "-frames:v", "1",
+             "-vf", "scale=768:-2", "-q:v", "4", str(p)],
+            check=True,
+        )
+        if p.exists():
+            frames.append(p)
+    return frames
