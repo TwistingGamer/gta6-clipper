@@ -112,7 +112,9 @@ def run_announce(who: str, when: str, what: str, when2: str, where: str, tags: s
     cid = "own"
     clip_id = hashlib.sha256(f"announce|{who}|{when}|{time.time()}".encode()).hexdigest()[:16]
     mark = os.getenv("WATERMARK_TEXT", "@gta6.clippaa").strip()
-    out = make_card(ANNOUNCE_DIR / f"{cid}_{clip_id}.mp4", who, when, what, when2, where, seconds, mark)
+    slug = "-".join(__import__("re").findall(r"[a-z0-9]+", who.lower()))[:30]
+    stamp = time.strftime("%Y-%m-%d_%H%M")
+    out = make_card(ANNOUNCE_DIR / f"{stamp}_{slug}_announcement_{clip_id}.mp4", who, when, what, when2, where, seconds, mark)
     hashtags = [t if t.startswith("#") else f"#{t}" for t in tags.split()] or ["#GTA6"]
     title = " · ".join(x for x in (who, what or "LIVE", when) if x)[:100]
     body = caption or f"{title}{f' ({when2})' if when2 else ''}. Who's tuning in? 👀"

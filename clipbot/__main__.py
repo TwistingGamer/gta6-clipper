@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import yaml
 import json
@@ -26,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import db
 from .chat import ChatLogger
-from .config import env_bool, env_int
+from .config import env_bool, env_float, env_int
 from .buffer import RollingBuffer, schedule_cut
 from .fetch import LIVE_DIR, capture_segment, category_ok, fetch_campaign, live_info
 from .pipeline import scan_all
@@ -272,19 +273,62 @@ def free_gb() -> float:
     return _sh.disk_usage(STORAGE).free / 1e9
 
 
-def expire_unreviewed():
-    """Clips nobody reviewed within UNREVIEWED_HOURS (48) are stale for launch content: delete them."""
+def expire_unreviewed(hours: float | None = None, sample_hours: float | None = None) -> int:
+    """Delete clips nobody approved within UNREVIEWED_HOURS (12) and sample clips after SAMPLE_HOURS (24).
+    hours=0 wipes every unapproved and sample clip now (`python -m clipbot cleanup`)."""
     from .publish import delete_clip_files
-    cutoff = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - env_int("UNREVIEWED_HOURS", 48) * 3600))
+    from .sample import SAMPLE_OUT
+    hours = env_float("UNREVIEWED_HOURS", 12) if hours is None else hours
+    sample_hours = env_float("SAMPLE_HOURS", 24) if sample_hours is None else sample_hours
+
+    def cutoff(h):
+        return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - h * 3600 + (1 if h == 0 else 0)))
+
     with db.connect() as con:
         ids = [r["id"] for r in con.execute(
-            "SELECT id FROM clips WHERE status IN ('pending_review','awaiting_streamer') AND created_at < ?", (cutoff,))]
+            "SELECT id FROM clips WHERE status IN ('pending_review','awaiting_streamer') AND created_at < ?",
+            (cutoff(hours),))]
+        ids += [r["id"] for r in con.execute("SELECT id FROM clips WHERE status='sample' AND created_at < ?",
+                                             (cutoff(sample_hours),))]
     for cid in ids:
         item = db.get_clip(cid)
         db.set_status(cid, "expired")
         delete_clip_files(item)
+    # Preview files in output\sample (and any leftovers from older versions).
+    if SAMPLE_OUT.is_dir():
+        for f in SAMPLE_OUT.iterdir():
+            try:
+                if f.is_file() and time.time() - f.stat().st_mtime >= sample_hours * 3600:
+                    f.unlink()
+            except OSError:
+                pass
     if ids:
-        LOG.info("Deleted %d clip(s) nobody reviewed within %d h", len(ids), env_int("UNREVIEWED_HOURS", 48))
+        LOG.info("Deleted %d unapproved/sample clip(s)", len(ids))
+    return len(ids)
+
+
+def cmd_cleanup():
+    """Wipe everything not approved: unreviewed and sample clips, saved moments, leftover temp files."""
+    from .config import OUTPUT, TMP
+    n = expire_unreviewed(0, 0)
+    freed = 0
+    keep = set()
+    with db.connect() as con:
+        for r in con.execute("SELECT source, output FROM clips WHERE status IN ('approved','awaiting_streamer')"):
+            keep |= {str(Path(r["source"] or "").resolve()), str(Path(r["output"] or "").resolve())}
+    for folder, patterns in ((LIVE_DIR, ("*.mp4", "*.json", "*.part.mp4")), (OUTPUT, ("*.mp4", "*.srt", "*.ass")),
+                             (TMP, ("*",))):
+        if not folder.is_dir():
+            continue
+        for pat in patterns:
+            for f in folder.glob(pat):
+                if f.is_file() and str(f.resolve()) not in keep and str(f.with_suffix(".mp4").resolve()) not in keep:
+                    try:
+                        freed += f.stat().st_size
+                        f.unlink()
+                    except OSError:
+                        pass
+    print(f"Deleted {n} unapproved/sample clip(s) and {freed / 1e9:.2f} GB of other files. Approved clips were kept.")
 
 
 def daemon():
@@ -473,6 +517,7 @@ def main():
     an.add_argument("--what", default="STARTS GTA 6 LIVE"); an.add_argument("--when2", default="")
     an.add_argument("--where", default=""); an.add_argument("--tags", default="#GTA6")
     an.add_argument("--caption", default=""); an.add_argument("--seconds", type=float, default=8)
+    sp.add_parser("cleanup", help="delete every unapproved and sample clip and leftover recordings now")
     fin = sp.add_parser("done", help="mark a clip finished and delete its video files"); fin.add_argument("clip_id")
     args = ap.parse_args()
     db.init_db()
@@ -531,6 +576,8 @@ def main():
         print(f"Card ready: {r['output']}\n\nCaption:\n{r['description']}\n\n"
               f"Watch it, then: python -m clipbot approve {r['id']}\n"
               f"and post it now: python -m clipbot post {r['id']} tiktok   (also instagram, youtube, x)")
+    elif args.cmd == "cleanup":
+        cmd_cleanup()
     elif args.cmd == "done":
         from .publish import finish_clip
         item = db.get_clip(args.clip_id)

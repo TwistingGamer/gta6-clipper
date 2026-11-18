@@ -127,6 +127,40 @@ def mark_first_look(login: str, clip_id: str):
     (DATA / "first_look.json").write_text(json.dumps(done), encoding="utf-8")
 
 
+STOP = set("""the and that this with you your for are was what but not have just like they them its it's i'm
+dont don't can't cant gonna wanna yeah okay right there here then than from about would could should because
+really know think going chat yall y'all bro guys one all get got out now see look come what's that's he's she's
+we're you're were will when where who how why also some more very much been being into over only even still
+""".split())
+
+
+def slug_words(transcript: str, chat_msgs: list[str], ai_title: str = "", n: int = 3) -> str:
+    """A few words saying what the clip is about: the AI title if there is one, else the words
+    chat and the streamer repeated most."""
+    import collections
+    if ai_title:
+        words = re.findall(r"[a-z0-9]+", ai_title.lower())
+        words = [w for w in words if w not in STOP and len(w) > 2]
+        return "-".join(words[:4])
+    counts = collections.Counter()
+    for m in chat_msgs:
+        for w in set(re.findall(r"[a-z0-9']{3,}", m.lower())):
+            if w not in STOP:
+                counts[w] += 1
+    for w in re.findall(r"[a-z0-9']{4,}", (transcript or "").lower()):
+        if w not in STOP:
+            counts[w] += 2   # what's said on stream counts double
+    return "-".join(w.replace("'", "") for w, _ in counts.most_common(n))
+
+
+def clip_filename(rec_start: float | None, start: float, login: str, kind: str, slug: str, score: float, clip_id: str) -> str:
+    """e.g. 2026-11-18_0442_typicalgamer_first-look_police-chase_score87_<id>.mp4"""
+    when = time.strftime("%Y-%m-%d_%H%M", time.localtime((rec_start or time.time()) + start))
+    parts = [when, re.sub(r"[^a-z0-9_]", "", (login or "clip").lower()), kind,
+             re.sub(r"[^a-z0-9-]", "", slug)[:40].strip("-"), f"score{int(min(score, 0.99) * 100)}", clip_id]
+    return "_".join(p for p in parts if p) + ".mp4"
+
+
 def _make_room(login: str, score: float) -> bool:
     """Keep only the best MAX_PER_STREAM_HOUR clips per streamer per hour: a better clip bumps the weakest
     one still waiting for review; a weaker one is skipped."""
@@ -267,10 +301,16 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
         mark = os.getenv("WATERMARK_TEXT", "@gta6.clippaa").strip() if c.my_watermark else ""
         frame = layout.choose(path, cand.start, cand.duration)
         overlay_ass(overlay, cand.duration, hook, c.watermark or c.credit_for(login), ad_label, mark, frame.hook_top)
-        dest = OUTPUT / f"{stem}.mp4"
+        chat_lines = [m for _, m in chat.load_chat(login, rec_start + cand.start, rec_start + cand.start + cand.duration + 10)] \
+            if (login and rec_start) else []
+        kind = "first-look" if is_first else ("viewer-clip" if viewer_clip else "moment")
+        slug = slug_words(transcript, chat_lines, verdict.get("title", "") if ai_ran else "")
+        dest = OUTPUT / clip_filename(rec_start, cand.start, login or c.id, kind, slug, final_score, sig)
         render(path, cand.start, cand.duration, dest, srt=srt, overlay=overlay, layout=frame,
                logo=watermark_image() if c.my_watermark else None)
         used.append((cand.start, cand.start + cand.duration))
+        srt.unlink(missing_ok=True)       # burned into the video now
+        overlay.unlink(missing_ok=True)
 
         db.insert_clip({
             "id": sig, "source": str(path), "output": str(dest),

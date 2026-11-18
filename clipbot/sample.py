@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+from pathlib import Path
 import subprocess
 import time
 
@@ -85,7 +86,9 @@ def run_sample(channel: str | None, minutes: float) -> None:
         raise SystemExit("No moment was picked (stream too quiet or too short). Try --minutes 5 or another channel.")
     for r in rows:
         db.set_status(r["id"], "sample")  # never eligible for posting
-        dest = SAMPLE_OUT / f"{login}_{r['id']}.mp4"
-        shutil.copy2(r["output"], dest)
+        dest = SAMPLE_OUT / Path(r["output"]).name
+        shutil.move(r["output"], dest)  # moved, not copied: no second copy left in the output folder
+        for extra in (".srt", ".ass"):
+            Path(r["output"]).with_suffix(extra).unlink(missing_ok=True)
         print(f"\nDone: {dest}\nTitle it would use: {r['title']}")
     raw.unlink(missing_ok=True)  # keep D: tidy; the clip is in output\\sample

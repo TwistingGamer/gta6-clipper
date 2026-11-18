@@ -161,7 +161,8 @@ def captions_for(item: dict, platform: str) -> dict[str, str]:
 def stage_manual(item: dict, platform: str, c) -> Path:
     dest_dir = READY / platform
     dest_dir.mkdir(parents=True, exist_ok=True)
-    video = dest_dir / f"{c.id}_{item['id']}.mp4"
+    name = Path(item["output"]).name
+    video = dest_dir / (name if item["id"] in name else f"{c.id}_{item['id']}.mp4")
     shutil.copy2(item["output"], video)
     texts = captions_for(item, platform)
     video.with_suffix(".txt").write_text(
@@ -240,8 +241,9 @@ def delete_clip_files(item: dict) -> int:
     out = Path(item.get("output") or "")
     paths = [out, out.with_suffix(".srt"), out.with_suffix(".ass"), out.with_suffix(".cap.ass")] if item.get("output") else []
     for platform in PLATFORMS:
-        staged = READY / platform / f"{item.get('campaign')}_{item['id']}.mp4"
-        paths += [staged, staged.with_suffix(".txt")]
+        folder = READY / platform
+        if folder.is_dir():
+            paths += [p for p in folder.glob(f"*{item['id']}*") if p.suffix in (".mp4", ".txt")]
     for p in paths:
         try:
             if p.is_file():

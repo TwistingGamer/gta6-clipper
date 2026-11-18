@@ -80,6 +80,12 @@ that moment and 20 seconds after it. The clipper then finds the peak and cuts fr
 0.5 GB per live stream, and saved moments are deleted after a day. A short buffer works even when VODs are
 subscriber-only or deleted.
 
+## Clip file names
+
+`2026-11-18_0442_typicalgamer_first-look_police-chase_score87_<ID>.mp4`: local time of the moment, streamer, kind
+(`first-look`, `viewer-clip`, `moment`), a few words about it (the AI title, or what chat and the streamer said most),
+the score (0-99), and the clip ID you use with `approve` / `posted`.
+
 ## What makes the cut
 
 Launch day has hours of menus and calm talking, so the bot is picky:
@@ -94,7 +100,7 @@ just started in it), the bot saves their first reaction even without a chat spik
 in GTA 6", and posts those first. One per streamer.
 
 **Disk safety:** recording pauses (and you get a ping) when the drive has under 20 GB free (`MIN_FREE_GB`), and
-resumes on its own. Clips nobody reviewed within 48 hours are deleted (`UNREVIEWED_HOURS`). Disk use while running is
+resumes on its own. Clips you haven't approved within 12 hours are deleted (`UNREVIEWED_HOURS`), previews after 24 hours, and posted clips as soon as every link is in. `python -m clipbot cleanup` wipes everything unapproved right now. Disk use while running is
 about 0.5 GB per stream being watched, plus ~10-20 MB per clip.
 
 ## How clips look
