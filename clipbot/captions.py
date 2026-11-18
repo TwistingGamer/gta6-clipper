@@ -38,7 +38,8 @@ def srt_time(seconds: float) -> str:
     return f"{hours:02}:{mins:02}:{sec:02},{ms:03}"
 
 
-def transcribe(source: Path, start: float, duration: float, srt_out: Path, words_per_line: int = 4) -> str:
+def transcribe(source: Path, start: float, duration: float, srt_out: Path, words_per_line: int = 4,
+               info_out: dict | None = None) -> str:
     """Write an SRT aligned to the clip and return the plain transcript."""
     tmp = DATA / f"_audio_{os.getpid()}_{threading.get_ident()}.wav"
     subprocess.run(
@@ -54,7 +55,10 @@ def transcribe(source: Path, start: float, duration: float, srt_out: Path, words
         if not len(audio):
             srt_out.write_text("", encoding="utf-8")
             return ""
-        segments, _ = whisper_model().transcribe(audio, vad_filter=True, word_timestamps=True)
+        segments, info = whisper_model().transcribe(audio, vad_filter=True, word_timestamps=True)
+        if info_out is not None and info is not None:
+            info_out["language"] = getattr(info, "language", "") or ""
+            info_out["language_probability"] = float(getattr(info, "language_probability", 0) or 0)
         lines, text, idx = [], [], 1
         for seg in segments:
             text.append(seg.text.strip())

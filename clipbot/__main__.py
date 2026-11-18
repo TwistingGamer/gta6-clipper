@@ -119,7 +119,9 @@ class LiveWatcher:
             s = twitch_online.get(inp.login)
             if s:
                 self._note_category(inp.login, s)
-            return bool(s) and category_ok(campaign, s.get("game_name"))
+            want = (campaign.language or "").lower()
+            lang_ok = want in ("", "any", "all") or (s or {}).get("language", want) == want
+            return bool(s) and lang_ok and category_ok(campaign, s.get("game_name"))
         meta = live_info(inp)  # Kick / YouTube live (or Twitch without API keys)
         if meta is not None:
             self.categories[inp.login] = meta.get("category") or ""

@@ -143,7 +143,7 @@ in the review queue under your own posts. Approve it and post it like any clip. 
 
 ## Clipping any GTA stream (gta-any)
 
-`python -m clipbot enable gta-any` follows the 4 biggest live GTA 6 Twitch streams (any language, at least
+`python -m clipbot enable gta-any` follows the 4 biggest live GTA 6 Twitch streams (English, at least
 1,000 viewers, fastest-growing first) that none of your campaigns covers, and clips them for **your own channels**: streamer credited on
 screen and in the caption, never submitted to a campaign, no story cutscenes or endings. Streamers that have a
 campaign entry (paid or tolerated, on or off) are never picked up here, so their own rules apply (e.g. IShowSpeed

@@ -254,7 +254,15 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
         transcript = ""
         if env_bool("CAPTIONS", True):
             try:
-                transcript = transcribe(path, cand.start, cand.duration, srt)
+                heard_lang: dict = {}
+                transcript = transcribe(path, cand.start, cand.duration, srt, info_out=heard_lang)
+                want = (c.language or "").lower()
+                if (want not in ("", "any", "all") and heard_lang.get("language") and len(transcript.split()) >= 5
+                        and heard_lang["language"] != want and heard_lang.get("language_probability", 0) >= 0.7):
+                    LOG.info("Skipped %s @%.0fs: speech is %s, campaign wants %s", path.name, cand.start,
+                             heard_lang["language"], want)
+                    srt.unlink(missing_ok=True)
+                    continue
             except Exception as exc:  # e.g. Whisper model can't download; still make the clip
                 LOG.warning("Captions failed @%.0fs, continuing without: %s", cand.start, str(exc)[:200])
                 srt.unlink(missing_ok=True)

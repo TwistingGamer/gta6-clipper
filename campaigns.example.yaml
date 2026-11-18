@@ -217,7 +217,7 @@ campaigns:
     discover_limit: 4            # streams watched at once (each one uses ~6 Mbps download)
     discover_min_viewers: 1000   # real GTA 6 streams pull a crowd; small/fake ones are skipped
     discover_exclude: [ishowspeed]   # Speed's team claims YouTube clips; see ishowspeed-gta
-    language: any                # early GTA 6 players may stream in any language
+    language: en                 # English streams only (Twitch stream language + what Whisper hears)
     submit: false
     inputs: []
     title_template:              # rotated so the feed doesn't look copy-pasted
