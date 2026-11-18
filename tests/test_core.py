@@ -200,6 +200,27 @@ class LookTest(unittest.TestCase):
         self.assertTrue(cs["gta-any"].my_watermark)
 
 
+class CapTest(unittest.TestCase):
+    def test_set_cap_overrides(self):
+        from clipbot import publish
+        with tempfile.TemporaryDirectory() as d:
+            orig = publish._cap_file
+            publish._cap_file = lambda: Path(d) / "posting.json"
+            try:
+                publish.write_cap_settings(6, 90)
+                self.assertEqual(publish.daily_cap(), 6)
+                self.assertEqual(publish.min_gap_seconds(6), 5400)
+            finally:
+                publish._cap_file = orig
+
+    def test_title_variants(self):
+        from clipbot.ai import template_text
+        g = load_campaigns(Path(__file__).resolve().parents[1] / "campaigns.example.yaml")["gta-any"]
+        titles = {package(g, template_text(g), [], "kai")[0] for _ in range(40)}
+        self.assertGreater(len(titles), 2)
+        self.assertTrue(all("kai" in t for t in titles))
+
+
 class ChatTest(unittest.TestCase):
     def test_spike_detected(self):
         login = f"unittest_{int(time.time())}"

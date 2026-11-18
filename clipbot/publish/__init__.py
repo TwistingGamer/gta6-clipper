@@ -43,8 +43,41 @@ def uploader(platform: str):
     return mod.post
 
 
+LAUNCH_WEEK_END = date(2026, 11, 26)   # GTA 6 launch week: lots of content, post more
+
+
+def _cap_file() -> Path:
+    from ..config import DATA
+    return DATA / "posting.json"
+
+
+def read_cap_settings() -> dict:
+    import json
+    try:
+        return json.loads(_cap_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def write_cap_settings(per_day: int | None = None, gap_minutes: int | None = None):
+    import json
+    data = read_cap_settings()
+    if per_day is not None:
+        data["per_day"] = max(0, per_day)
+    if gap_minutes is not None:
+        data["gap_minutes"] = max(0, gap_minutes)
+    _cap_file().parent.mkdir(parents=True, exist_ok=True)
+    _cap_file().write_text(json.dumps(data), encoding="utf-8")
+
+
 def daily_cap() -> int:
-    """Warm-up: brand-new accounts start at 1 post/day per platform and ramp up weekly."""
+    """Posts per platform per day. `set-cap N` wins. Otherwise: 5 during GTA 6 launch week,
+    then the warm-up (1/day in week 1 after ACCOUNTS_STARTED, +1 each week) up to POSTS_PER_DAY."""
+    saved = read_cap_settings().get("per_day")
+    if saved is not None:
+        return int(saved)
+    if date.today() <= LAUNCH_WEEK_END:
+        return env_int("LAUNCH_POSTS_PER_DAY", 5)
     cap = max(1, env_int("POSTS_PER_DAY", 3))
     started = os.getenv("ACCOUNTS_STARTED", "")
     if started:
@@ -54,6 +87,13 @@ def daily_cap() -> int:
         except ValueError:
             pass
     return cap
+
+
+def min_gap_seconds(cap: int) -> float:
+    """Spacing between two posts on the same platform: at least MIN_GAP_MINUTES (default 2 h)."""
+    gap = read_cap_settings().get("gap_minutes")
+    gap = env_int("MIN_GAP_MINUTES", 120) if gap is None else int(gap)
+    return gap * 60
 
 
 def check_clip(item: dict, platform: str):
@@ -217,7 +257,7 @@ def post_due() -> list[tuple[str, str, str]]:
         count, latest = db.posts_since(platform, (now - timedelta(hours=24)).isoformat())
         if count >= cap:
             continue
-        if latest and (now - datetime.fromisoformat(latest)).total_seconds() < 86400 / cap:
+        if latest and (now - datetime.fromisoformat(latest)).total_seconds() < min_gap_seconds(cap):
             continue
         # Best campaign first (easiest + biggest payout), then best clip.
         pending = db.unposted_for_platform(platform)

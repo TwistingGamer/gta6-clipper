@@ -220,7 +220,13 @@ campaigns:
     language: any                # early GTA 6 players may stream in any language
     submit: false
     inputs: []
-    title_template: "{streamer} in GTA"
+    title_template:              # rotated so the feed doesn't look copy-pasted
+      - "{streamer} in GTA 6 😂"
+      - "GTA 6 got {streamer} like 💀"
+      - "{streamer} was NOT ready for this (GTA 6)"
+      - "This GTA 6 moment from {streamer} 😭"
+      - "{streamer} vs Vice City"
+      - "Only in GTA 6… ({streamer})"
     required_hashtags: ["#GTA6", "#GTAVI"]
     content_rule: "Gameplay and reactions only. Skip story cutscenes, mission endings and story spoilers."
 

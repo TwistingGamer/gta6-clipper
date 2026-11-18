@@ -125,7 +125,11 @@ python -m clipbot report                     # today's links per campaign, for s
 #   rejected clips are deleted right away. `python -m clipbot done <ID>` deletes one by hand.
 ```
 
-**Warm-up:** with `ACCOUNTS_STARTED` set, each platform gets 1 post a day in week 1, 2 in week 2, and so on, up to `POSTS_PER_DAY`.
+**How many posts:** `python -m clipbot set-cap 5` = up to 5 posts per platform per day, at least 2 hours apart
+(`--gap 90` for 90 minutes). Without it: 5 a day during GTA 6 launch week (to Nov 26), then the warm-up, where
+`ACCOUNTS_STARTED` gives 1 post a day in week 1, 2 in week 2, and so on, up to `POSTS_PER_DAY`.
+Approve in bulk with `python -m clipbot approve --top 10` (the 10 best) or `approve --all`.
+Titles rotate between several wordings and each clip gets its own neon colour pair, so a busy feed doesn't look copy-pasted.
 Brand-new accounts that post a lot right away tend to get throttled.
 
 **Priority:** when several campaigns have clips ready, the easiest, best-paying one goes first.

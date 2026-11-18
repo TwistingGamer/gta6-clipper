@@ -44,7 +44,11 @@ Do not describe or speculate about unreleased/leaked game content."""
 
 def template_text(campaign) -> dict:
     """Plain, human-style packaging used without an AI key or when a campaign bans AI text."""
-    title = campaign.title_template or f"{campaign.display} moment"
+    tpl = campaign.title_template
+    if isinstance(tpl, list):  # several wordings: rotate so a busy feed doesn't look copy-pasted
+        import random
+        tpl = random.choice([t for t in tpl if t] or [""])
+    title = tpl or f"{campaign.display} moment"
     return {
         "keep": True, "score": 5, "why": "heuristic only (no AI judge)",
         "title": title, "hook": "",

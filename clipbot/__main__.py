@@ -348,7 +348,12 @@ def main():
     for name in ("run", "scan", "fetch", "campaigns"):
         sp.add_parser(name)
     r = sp.add_parser("review"); r.add_argument("--all", action="store_true")
-    a = sp.add_parser("approve"); a.add_argument("clip_id"); a.add_argument("--streamer-approved", action="store_true")
+    a = sp.add_parser("approve", help="approve one clip, or many: approve --all / approve --top 10")
+    a.add_argument("clip_id", nargs="?"); a.add_argument("--streamer-approved", action="store_true")
+    a.add_argument("--all", action="store_true"); a.add_argument("--top", type=int, default=0)
+    a.add_argument("--campaign", default="")
+    sc = sp.add_parser("set-cap", help="posts per platform per day, e.g. set-cap 5 (--gap 120 minutes apart)")
+    sc.add_argument("per_day", type=int); sc.add_argument("--gap", type=int, default=None)
     j = sp.add_parser("reject"); j.add_argument("clip_id")
     po = sp.add_parser("post"); po.add_argument("clip_id"); po.add_argument("platform", choices=["youtube", "tiktok", "instagram", "x"])
     pd = sp.add_parser("posted"); pd.add_argument("clip_id"); pd.add_argument("platform"); pd.add_argument("url")
@@ -390,7 +395,26 @@ def main():
         rows = db.list_clips(None if args.all else "pending_review")
         print(json.dumps(rows, indent=2) if rows else "Nothing waiting for review.")
     elif args.cmd == "approve":
-        cmd_approve(args.clip_id, args.streamer_approved)
+        if args.all or args.top:
+            rows = [r for r in db.list_clips("pending_review", limit=1000)
+                    if not args.campaign or r.get("campaign") == args.campaign]
+            rows.sort(key=lambda r: -(r.get("score") or 0))
+            if args.top:
+                rows = rows[:args.top]
+            for r in rows:
+                cmd_approve(r["id"], args.streamer_approved)
+            print(f"{len(rows)} clip(s) handled." if rows else "Nothing waiting for review.")
+        elif args.clip_id:
+            cmd_approve(args.clip_id, args.streamer_approved)
+        else:
+            raise SystemExit("approve CLIP_ID, or approve --all, or approve --top 10")
+    elif args.cmd == "set-cap":
+        from .publish import daily_cap, min_gap_seconds, write_cap_settings
+        write_cap_settings(args.per_day, args.gap)
+        cap = daily_cap()
+        print(f"Up to {cap} post(s) per platform per day, at least {min_gap_seconds(cap) / 60:.0f} min apart.")
+        if cap > 6:
+            print("Heads up: brand-new accounts posting more than ~6 a day often get throttled or flagged as spam.")
     elif args.cmd == "reject":
         db.set_status(args.clip_id, "rejected")
         from .publish import delete_clip_files

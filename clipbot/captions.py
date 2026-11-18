@@ -134,9 +134,12 @@ def captions_ass(srt: Path, out: Path, y_from_bottom: int):
             _style("Cap", "Bungee", 116, WHITE, NIGHT, "&H96000000", 0, 1, 5, 6, 2, 60, 60, y_from_bottom),
         ])
         body = ""
+        # Each clip gets its own neon pair (from its file name), so a run of posts doesn't look identical.
+        pairs = [(PINK, CYAN), (CYAN, PINK), (ORANGE, PINK), (PINK, ORANGE), (CYAN, ORANGE)]
+        first, second = pairs[sum(out.stem.encode()) % len(pairs)]
         for i, (a, b, t) in enumerate(entries):
-            glow = PINK if i % 2 == 0 else CYAN
-            shadow = CYAN if i % 2 == 0 else PINK
+            glow = first if i % 2 == 0 else second
+            shadow = second if i % 2 == 0 else first
             txt = _ass_escape(t)
             body += (f"Dialogue: 0,{ass_ts(a)},{ass_ts(b)},Glow,,0,0,0,,{{\\blur10\\3c{glow}\\fad(60,0)}}{txt}\n"
                      f"Dialogue: 1,{ass_ts(a)},{ass_ts(b)},Cap,,0,0,0,,{{\\4c{shadow}\\fad(60,0)}}{txt}\n")

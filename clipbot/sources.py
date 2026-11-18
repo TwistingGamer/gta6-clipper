@@ -99,7 +99,7 @@ class Campaign:
     clip_preapproval: bool = False # streamer/campaign must OK each clip before posting
     content_rule: str = ""         # extra rule the AI judge enforces, e.g. "at least 2 Core members on screen"
     required_words: list[str] = field(default_factory=list)  # caption must contain each, e.g. ["Expedia"]
-    title_template: str = ""       # used when ai_text_allowed is false, e.g. "IShowSpeed's Expedia trip"
+    title_template: str | list = ""  # used without AI text, e.g. "IShowSpeed's Expedia trip"; a list = rotate wordings
     require_review: bool = True    # a human approves every clip, even if AUTO_APPROVE=true
     post_hours: str = ""           # local hours posting is allowed, e.g. "9-23" (you must be awake to submit)
     submit_within_minutes: int = 0 # campaign deadline to submit the link after posting (sends a ping)
