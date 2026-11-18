@@ -74,15 +74,15 @@ def _forced_cam(src: tuple[int, int]) -> tuple[int, int, int, int] | None:
     return int(x * src[0]), int(y * src[1]), int(w * src[0]), int(h * src[1])
 
 
-def find_facecam(path: Path, start: float, duration: float, src: tuple[int, int]) -> tuple[int, int, int, int] | None:
-    """A webcam face stays put; faces in the game move. Look at 8 frames and keep a face that doesn't."""
+def _face_hits(path: Path, start: float, duration: float, src: tuple[int, int]) -> tuple[list, int]:
+    """Faces seen in 8 frames across the window: ([(centre x, centre y, size) as fractions], frames looked at)."""
     try:
         import cv2
     except ImportError:
         LOG.info("opencv not installed: no facecam detection (pip install opencv-python-headless)")
-        return None
+        return [], 0
     if not FACE_MODEL.is_file():
-        return None
+        return [], 0
     aw = 960
     ah = int(round(src[1] * aw / src[0] / 2) * 2)
     detector = cv2.FaceDetectorYN.create(str(FACE_MODEL), "", (aw, ah), 0.7)
@@ -99,17 +99,47 @@ def find_facecam(path: Path, start: float, duration: float, src: tuple[int, int]
             if not aw * 0.03 <= w <= aw * 0.35:
                 continue
             hits.append(((x + w / 2) / aw, (y + h / 2) / ah, w / aw))
+    return hits, looked
+
+
+def stable_faces(hits: list, looked: int) -> list[tuple[float, float, float, int]]:
+    """Face positions that stay put across most frames (webcams), most-seen first."""
+    clusters, left = [], list(hits)
+    while left:
+        best, best_n = None, 0
+        for cx, cy, sz in left:
+            n = sum(1 for x, y, _ in left if abs(x - cx) < 0.04 and abs(y - cy) < 0.06)
+            if n > best_n:
+                best, best_n = (cx, cy, sz), n
+        if best_n < max(4, int(looked * 0.6)):
+            break
+        same = [h for h in left if abs(h[0] - best[0]) < 0.04 and abs(h[1] - best[1]) < 0.06]
+        clusters.append((*(float(np.median([h[k] for h in same])) for k in range(3)), best_n))
+        left = [h for h in left if h not in same]
+    return clusters
+
+
+def watching_someone_else(path: Path, start: float, duration: float) -> bool:
+    """Two webcams far apart on screen = the streamer is watching another streamer's stream
+    (common before GTA 6 unlocks in their country). A duo on one webcam sits close together."""
+    try:
+        src = video_size(path)
+        hits, looked = _face_hits(path, start, duration, src)
+    except Exception:
+        return False
+    cams = stable_faces(hits, looked)
+    return any(abs(a[0] - b[0]) > 0.3 for i, a in enumerate(cams) for b in cams[i + 1:])
+
+
+def find_facecam(path: Path, start: float, duration: float, src: tuple[int, int]) -> tuple[int, int, int, int] | None:
+    """A webcam face stays put; faces in the game move. Look at 8 frames and keep a face that doesn't."""
+    hits, looked = _face_hits(path, start, duration, src)
     if looked < 4 or not hits:
         return None
-    best, best_n = None, 0
-    for cx, cy, s in hits:     # the face position seen in the most frames
-        n = sum(1 for x, y, _ in hits if abs(x - cx) < 0.04 and abs(y - cy) < 0.06)
-        if n > best_n:
-            best, best_n = (cx, cy, s), n
-    if best_n < max(4, int(looked * 0.6)):
+    cams = stable_faces(hits, looked)
+    if not cams:
         return None
-    same = [h for h in hits if abs(h[0] - best[0]) < 0.04 and abs(h[1] - best[1]) < 0.06]
-    cx, cy, s = (float(np.median([h[k] for h in same])) for k in range(3))
+    cx, cy, s, _ = cams[0]
     # Webcam box around the face: about 5 face-widths wide (webcam framing), at the facecam band's shape.
     bw = min(src[0], s * src[0] * 5.0)
     bh = min(src[1], bw * CAM_H / W)

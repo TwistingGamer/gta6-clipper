@@ -15,7 +15,9 @@ def _rfc3339(ts: float) -> str:
 
 
 NOT_GAMEPLAY = ("countdown", "watch party", "watchparty", "rerun", "re-run", "trailer", "news", "podcast",
-                "reacting to", "reaction", "waiting for", "launch party", "until gta", "24/7 music")
+                "reacting to", "reaction", "waiting for", "launch party", "until gta", "24/7 music",
+                "watching", "watch along", "watchalong", "co-watch", "cowatch", "viewing party", "react ",
+                "reacts", "early access stream", "nz stream", "new zealand stream", "w/ chat watching", "pre-release")
 SKIP_CHANNELS = {"twitch", "twitchgaming", "rockstargames", "twitchrivals"}
 
 

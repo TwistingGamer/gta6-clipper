@@ -25,7 +25,8 @@ LOG = logging.getLogger("clipbot.chat")
 
 HYPE = re.compile(
     r"\b(kekw|omegalul|lul|lmao+|lmfao|icant|pog+|pogchamp|poggers|wtf+|clip\s*(it|that)|"
-    r"no\s*way|holy|w+|l+|monkas|pepelaugh|sadge|aware)\b|\?{3,}",
+    r"no\s*way|holy|w+|l+|monkas|pepelaugh|sadge|aware|ha(ha)+|oh\s*my\s*god|omg+|lets+\s*go+|letsgo+|"
+    r"bro+|nah+|deadass|crying|im\s*dead|ratio|gg)\b|\?{3,}|!{3,}|[\U0001F480\U0001F62D\U0001F602\U0001F923]",
     re.IGNORECASE,
 )
 
@@ -42,9 +43,10 @@ class SpikeDetector:
     hype (KEKW, "clip it", ...). One trigger per SPIKE_COOLDOWN seconds.
     """
 
-    def __init__(self, on_spike, factor: float = 3.0, min_rate: float = 2.0, cooldown: float = 60.0):
+    def __init__(self, on_spike, factor: float = 4.0, min_rate: float = 3.0, cooldown: float = 60.0,
+                 min_hype: float = 0.25):
         self.on_spike = on_spike
-        self.factor, self.min_rate, self.cooldown = factor, min_rate, cooldown
+        self.factor, self.min_rate, self.cooldown, self.min_hype = factor, min_rate, cooldown, min_hype
         self.counts: dict[int, list[int]] = {}   # second -> [messages, hype messages]
         self.last_fire = 0.0
 
@@ -66,7 +68,7 @@ class SpikeDetector:
         hype = sum(c[1] for c in recent) / max(1, sum(c[0] for c in recent))
         history = sorted(self.counts.get(s, [0, 0])[0] for s in range(now - 300, now - 8))
         normal = max(0.5, history[len(history) // 2]) if history else 0.5
-        if rate >= self.min_rate and rate >= self.factor * normal and hype >= 0.15:
+        if rate >= self.min_rate and rate >= self.factor * normal and hype >= self.min_hype:
             self.last_fire = now
             self.on_spike(float(now), rate / normal, hype)
 
@@ -83,8 +85,9 @@ class ChatLogger(threading.Thread):
         if on_spike:
             self.detector = SpikeDetector(
                 lambda t, lift, hype: on_spike(self.login, t, lift, hype),
-                factor=float(os.getenv("SPIKE_FACTOR", "3")),
-                min_rate=float(os.getenv("SPIKE_MIN_RATE", "2")),
+                factor=float(os.getenv("MOMENT_SPIKE_FACTOR", "4")),
+                min_rate=float(os.getenv("MOMENT_SPIKE_MIN_RATE", "3")),
+                min_hype=float(os.getenv("MOMENT_SPIKE_MIN_HYPE", "0.25")),
                 cooldown=float(os.getenv("SPIKE_COOLDOWN", "60")),
             )
 
@@ -175,10 +178,14 @@ def chat_scores(login: str, rec_start: float, seconds: float, step: int = 10, wi
         peak = float(np.convolve(per_sec[a:b], np.ones(5), "valid").max() / 5) if b - a >= 5 else rate
         hype_share = float(hype[a:b].sum() / max(1.0, per_sec[a:b].sum()))
         lift = (0.5 * rate + 0.5 * peak) / max(baseline, 0.5)
-        out.append(0.5 * float(np.log2(max(lift, 1.0))) + hype_share)
-    # Relative to this recording's busiest moment, so big and small chats compare fairly.
-    top = max(out) or 1.0
-    return [x / top for x in out]
+        # Absolute, not relative to this recording: a quiet chat never scores high just because
+        # it's the "busiest" bit of a dull stretch. 3x the channel's normal with lots of
+        # KEKW / LMAO / clip it / 💀 is a real moment.
+        strength = 0.45 * float(np.log2(max(lift, 1.0))) + 1.2 * hype_share
+        if lift < float(os.getenv("CHAT_MIN_LIFT", "2")):
+            strength *= 0.3
+        out.append(min(1.0, strength))
+    return out
 
 
 def chat_per_second(login: str, rec_start: float, seconds: float) -> np.ndarray | None:

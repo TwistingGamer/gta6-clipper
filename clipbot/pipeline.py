@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import logging
 import math
 import os
@@ -98,6 +99,59 @@ def process_file(path: Path, campaign: Campaign, *, twitch=None) -> int:
         raise
 
 
+FIRST_LOOK_WORDS = re.compile(
+    r"\b(finally|it'?s out|it'?s here|we'?re in|oh my god|oh my gosh|omg|vice city|leonida|lucia|jason|"
+    r"first time|let'?s go+|no way|this is crazy|it'?s real)\b", re.I)
+
+
+def moment_meta(path: Path) -> dict:
+    side = path.with_suffix(".json")
+    try:
+        return json.loads(side.read_text(encoding="utf-8")) if side.exists() else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def first_look_done() -> dict:
+    from .config import DATA
+    try:
+        return json.loads((DATA / "first_look.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def mark_first_look(login: str, clip_id: str):
+    from .config import DATA
+    done = first_look_done()
+    done[login] = clip_id
+    (DATA / "first_look.json").write_text(json.dumps(done), encoding="utf-8")
+
+
+def _make_room(login: str, score: float) -> bool:
+    """Keep only the best MAX_PER_STREAM_HOUR clips per streamer per hour: a better clip bumps the weakest
+    one still waiting for review; a weaker one is skipped."""
+    limit = env_int("MAX_PER_STREAM_HOUR", 3)
+    if not login or limit <= 0:
+        return True
+    since = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 3600))
+    with db.connect() as con:
+        rows = [dict(r) for r in con.execute(
+            "SELECT id, score, status FROM clips WHERE streamer=? AND created_at>=? "
+            "AND status IN ('pending_review','approved','awaiting_streamer','done')", (login, since))]
+    if len(rows) < limit:
+        return True
+    waiting = sorted((r for r in rows if r["status"] == "pending_review"), key=lambda r: r["score"] or 0)
+    if waiting and score > (waiting[0]["score"] or 0):
+        from .publish import delete_clip_files
+        weakest = db.get_clip(waiting[0]["id"])
+        db.set_status(weakest["id"], "rejected")
+        delete_clip_files(weakest)
+        LOG.info("%s: replaced weaker clip %s (%.2f) with a better one (%.2f)", login, weakest["id"],
+                 weakest.get("score") or 0, score)
+        return True
+    return False
+
+
 def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
     window = max(c.min_clip_seconds, min(env_int("CLIP_SECONDS", 36), c.max_clip_seconds))
     seconds = detect.ffprobe_seconds(path)
@@ -118,8 +172,8 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
                 LOG.warning("Twitch clips lookup failed for %s: %s", login, exc)
 
     # Long videos (full VODs) get more clips than a 5-minute live segment.
-    max_out = max(env_int("MAX_CLIPS_PER_SEGMENT", 2), math.ceil(seconds / 3600 * env_int("MAX_CLIPS_PER_HOUR", 6)))
-    candidates = detect.pick_windows(seconds, window, signals, max_out * 2, env_float("MIN_SCORE", 0.15))
+    max_out = max(env_int("MAX_CLIPS_PER_SEGMENT", 2), math.ceil(seconds / 3600 * env_int("MAX_CLIPS_PER_HOUR", 3)))
+    candidates = detect.pick_windows(seconds, window, signals, max_out * 2, env_float("MIN_MOMENT_SCORE", 0.35))
     LOG.info("[%s] %s: %d candidates (signals: %s)", c.id, path.name, len(candidates),
              ", ".join(k for k, v in signals.items() if v))
 
@@ -128,6 +182,10 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
     tail = env_float("AFTER_SECONDS", 10)
     total = max(c.min_clip_seconds, min(lead + tail, c.max_clip_seconds))
     lead, tail = total * lead / (lead + tail), total * tail / (lead + tail)
+    meta = moment_meta(path)
+    first_look = bool(meta.get("first_look")) and bool(login) and login not in first_look_done()
+    if first_look and not candidates and seconds >= 15:   # the load-in itself, even if chat was slow
+        candidates = [detect.Candidate(0.0, min(seconds, total), 0.5, {"first_look": 1})]
     made, used = 0, []
     for cand in candidates:
         if made >= max_out:
@@ -135,6 +193,25 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
         cand = detect.refine(cand, seconds, audio_ps, chat_ps, lead, tail)
         if any(cand.start < e and cand.start + cand.duration > s for s, e in used):
             continue  # re-centred onto a moment that's already clipped
+        # Viral check before spending time on captions/AI: a real reaction is loud, and a frozen
+        # menu or loading screen only counts if the streamer reacts really hard.
+        seg = audio_ps[int(cand.start):int(cand.start + cand.duration)] if len(audio_ps) else audio_ps
+        peak = float(seg.max()) if len(seg) else 0.0
+        viewer_clip = (cand.signals.get("clips") or 0) > 0.5
+        hype_chat = (cand.signals.get("chat") or 0) >= env_float("CHAT_HYPE_SCORE", 0.6)
+        loud_enough = peak >= env_float("AUDIO_MIN_PEAK", 6.0) or (hype_chat and peak >= env_float("AUDIO_WITH_CHAT_PEAK", 2.5))
+        if not first_look and not viewer_clip and not loud_enough:
+            LOG.info("Skipped %s @%.0fs: no big reaction (peak %.1fx normal loudness)", path.name, cand.start, peak)
+            continue
+        if not c.min_members and layout.watching_someone_else(path, cand.start, cand.duration):
+            LOG.info("Skipped %s @%.0fs: two webcams on screen, %s is watching someone else's stream",
+                     path.name, cand.start, login or "streamer")
+            continue
+        if not first_look and peak < env_float("AUDIO_STRONG_PEAK", 8.0):
+            still = detect.motion(path, cand.start, cand.duration)
+            if still < env_float("STATIC_MOTION", 1.5):
+                LOG.info("Skipped %s @%.0fs: static screen (menu/loading?) and no huge reaction", path.name, cand.start)
+                continue
         sig = hashlib.sha256(f"{c.id}|{path}|{stat.st_size}|{stat.st_mtime}|{cand.start}".encode()).hexdigest()[:16]
         if db.get_clip(sig) or db.clip_exists_for(str(path), cand.start):
             continue  # already clipped (possibly for a linked campaign: one clip, submitted to several)
@@ -171,9 +248,21 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
                      path.name, cand.start, len(people), c.min_members)
             srt.unlink(missing_ok=True)
             continue
+        heard = bool(FIRST_LOOK_WORDS.search(transcript or ""))
+        is_first = first_look and made == 0
+        if is_first and not c.members and not c.sponsor:
+            # "{streamer}'s first time in GTA 6": fixed wording, not AI text, so fine for no-AI campaigns too.
+            verdict = verdict | {"title": f"{login}'s first time in GTA 6 😳", "keep": True}
+        final_score = cand.score * 0.4 + verdict.get("score", 0) / 10 * 0.6 + (1.0 if is_first else 0.0)
+        if not is_first and not _make_room(login or "", final_score):
+            LOG.info("Skipped %s @%.0fs: %s already has its best clips this hour", path.name, cand.start, login)
+            srt.unlink(missing_ok=True)
+            continue
         title, description, tags = package(c, verdict, people, login)
         overlay = OUTPUT / f"{stem}.ass"
         hook = verdict.get("hook", "") if c.ai_text_allowed else ""
+        if is_first and c.show_credit:
+            hook = f"{login}'s first time in GTA 6"
         ad_label = os.getenv("AD_LABEL", "Paid partnership #ad") if c.ad_disclosure else ""
         mark = os.getenv("WATERMARK_TEXT", "@gta6.clippaa").strip() if c.my_watermark else ""
         frame = layout.choose(path, cand.start, cand.duration)
@@ -185,16 +274,19 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
 
         db.insert_clip({
             "id": sig, "source": str(path), "output": str(dest),
-            "score": cand.score * 0.4 + verdict.get("score", 0) / 10 * 0.6,
+            "score": final_score,
             "status": initial_status(c), "title": title, "created_at": db.now_iso(),
             "streamer": login or "", "campaign": c.id, "series": c.series,
             "description": description, "hashtags": tags, "hook": hook,
             "start_s": cand.start, "duration_s": cand.duration, "ad_disclosure": int(c.ad_disclosure),
-            "reasons": {"signals": cand.signals, "layout": frame.mode, "ai": verdict.get("why", ""), "transcript": transcript[:500],
+            "reasons": {"signals": cand.signals, "layout": frame.mode, "first_look": is_first,
+                        "first_look_words": heard, "peak": round(peak, 1), "ai": verdict.get("why", ""), "transcript": transcript[:500],
                         "people": people, "submit_to": [c.id] + c.also_submit_to,
                         "check": ([] if ai_ran or not c.min_members else
                                   [f"confirm at least {c.min_members} members are on screen and fix member hashtags"])},
         })
+        if is_first:
+            mark_first_look(login, sig)
         LOG.info("[%s] clip ready for review: %s \"%s\"", c.id, sig, title)
         made += 1
     return made

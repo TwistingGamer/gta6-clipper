@@ -51,7 +51,9 @@ class LiveWatcher:
         self.titles: dict[str, str] = {}
         self.discovering: set[str] = set()   # discovered streams being watched right now
         self._last_discover = 0.0
-        self.viewer_hist: dict[str, list[tuple[float, int]]] = {}  # login -> [(time, viewers)]
+        self.viewer_hist: dict[str, list[tuple[float, int]]] = {}
+        self.first_look_until: dict[str, float] = {}  # login -> end of their first-look window
+        self.first_look_pending: set[str] = set()     # load-in not saved yet  # login -> [(time, viewers)]
         self._warned_discover = False
 
     @staticmethod
@@ -67,7 +69,35 @@ class LiveWatcher:
         LOG.info("chat spike on %s (x%.1f, %d%% hype)%s", login, lift, hype * 100,
                  "; saving the moment" if buf else "")
         if buf:
-            schedule_cut(buf, t, {"category": self.categories.get(login, ""), "title": self.titles.get(login, "")})
+            schedule_cut(buf, t, self.moment_meta(login, t))
+
+    # ---- first look: a streamer's first minutes in GTA 6 ----
+    def moment_meta(self, login: str, t: float) -> dict:
+        meta = {"category": self.categories.get(login, ""), "title": self.titles.get(login, "")}
+        if t <= self.first_look_until.get(login, 0):
+            meta["first_look"] = True
+        return meta
+
+    def _note_category(self, login: str, stream: dict):
+        """Spot the moment a streamer loads into GTA 6: the category changes to GTA VI while we watch,
+        or the stream itself just started in GTA VI."""
+        from datetime import datetime
+        from .pipeline import first_look_done
+        new = (stream.get("game_name") or "").strip().lower()
+        prev = self.categories.get(login)
+        self.categories[login] = stream.get("game_name") or ""
+        self.titles[login] = stream.get("title") or ""
+        if new != "grand theft auto vi" or login in self.first_look_until or login in first_look_done():
+            return
+        switched = prev is not None and prev.strip().lower() != new
+        try:
+            started = datetime.fromisoformat(stream.get("started_at", "").replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            started = 0
+        if switched or time.time() - started < 20 * 60:
+            self.first_look_until[login] = time.time() + env_int("FIRST_LOOK_MINUTES", 15) * 60
+            self.first_look_pending.add(login)
+            LOG.info("%s just loaded into GTA 6: watching for their first reaction", login)
 
     def still_in_game(self, campaign, login: str) -> bool:
         """Re-check the category right now: streamers switch games mid-stream."""
@@ -87,8 +117,7 @@ class LiveWatcher:
         if inp.type == "twitch" and self.twitch.configured:
             s = twitch_online.get(inp.login)
             if s:
-                self.categories[inp.login] = s.get("game_name") or ""
-                self.titles[inp.login] = s.get("title") or ""
+                self._note_category(inp.login, s)
             return bool(s) and category_ok(campaign, s.get("game_name"))
         meta = live_info(inp)  # Kick / YouTube live (or Twitch without API keys)
         if meta is not None:
@@ -140,6 +169,23 @@ class LiveWatcher:
         self.discovering = now_watching
         add_discovered(campaigns, keep_hours=24)
 
+    def stop_all(self):
+        """Stop every recorder and chat logger (low disk space)."""
+        for buf in self.buffers.values():
+            buf.stop()
+            for piece in buf.dir.glob("*.ts"):
+                try:
+                    piece.unlink()
+                except OSError:
+                    pass  # still open; pruned on the next start
+        for flag in self.captures.values():
+            flag.clear()
+        for chat_logger in self.chats.values():
+            chat_logger.stop()
+        self.buffers.clear()
+        self.captures.clear()
+        self.chats.clear()
+
     def surge(self, login: str, viewers: int) -> float:
         """How fast viewers are growing: now vs. ~30 min ago (1.0 = flat, capped at 3)."""
         now = time.time()
@@ -176,6 +222,11 @@ class LiveWatcher:
                 if inp.login not in self.buffers:
                     self.buffers[inp.login] = RollingBuffer(c, inp)
                     self.buffers[inp.login].start()
+                if inp.login in self.first_look_pending:
+                    # Save the load-in itself (the "oh my god it's finally out" bit), even without a chat spike.
+                    self.first_look_pending.discard(inp.login)
+                    when = time.time() + env_int("FIRST_LOOK_DELAY_SECONDS", 75)
+                    schedule_cut(self.buffers[inp.login], when, self.moment_meta(inp.login, time.time()))
                 continue
             if recording_ok and key not in self.captures:  # full mode, or Kick/YouTube (no chat signal)
                 flag = threading.Event()
@@ -215,14 +266,51 @@ def cleanup_old_recordings():
             pass
 
 
+def free_gb() -> float:
+    from .config import STORAGE
+    import shutil as _sh
+    return _sh.disk_usage(STORAGE).free / 1e9
+
+
+def expire_unreviewed():
+    """Clips nobody reviewed within UNREVIEWED_HOURS (48) are stale for launch content: delete them."""
+    from .publish import delete_clip_files
+    cutoff = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - env_int("UNREVIEWED_HOURS", 48) * 3600))
+    with db.connect() as con:
+        ids = [r["id"] for r in con.execute(
+            "SELECT id FROM clips WHERE status IN ('pending_review','awaiting_streamer') AND created_at < ?", (cutoff,))]
+    for cid in ids:
+        item = db.get_clip(cid)
+        db.set_status(cid, "expired")
+        delete_clip_files(item)
+    if ids:
+        LOG.info("Deleted %d clip(s) nobody reviewed within %d h", len(ids), env_int("UNREVIEWED_HOURS", 48))
+
+
 def daemon():
+    from .notify import notify
     db.init_db()
     watcher = LiveWatcher()
     last_fetch = 0.0
+    low_disk = False
     while True:
         try:
+            # Disk safety: stop recording below MIN_FREE_GB, resume 5 GB above it.
+            free = free_gb()
+            limit = env_int("MIN_FREE_GB", 20)
+            if not low_disk and free < limit:
+                low_disk = True
+                watcher.stop_all()
+                LOG.warning("Only %.0f GB free: recording paused", free)
+                notify(f"⚠️ Only {free:.0f} GB free on the clip drive: recording paused. Post or reject clips "
+                       f"(or free space) and it resumes by itself above {limit + 5} GB.")
+            elif low_disk and free > limit + 5:
+                low_disk = False
+                notify(f"✅ {free:.0f} GB free again: recording resumed.")
             campaigns = authorized_campaigns()  # re-read every cycle: edits apply live
-            watcher.tick(campaigns)
+            if not low_disk:
+                watcher.tick(campaigns)
+            expire_unreviewed()
             if time.time() - last_fetch > env_int("FETCH_EVERY_MINUTES", 30) * 60:
                 for c in campaigns.values():
                     fetch_campaign(c)

@@ -234,8 +234,25 @@ class ChatTest(unittest.TestCase):
                         fh.write(json.dumps({"t": start + s, "m": "KEKW" if n > 1 else "hello"}) + "\n")
             scores = chat.chat_scores(login, start, 120)
             self.assertIsNotNone(scores)
-            best = max(range(len(scores)), key=scores.__getitem__)
-            self.assertIn(best * 10, (30, 40, 50, 60))
+            best = max(scores)
+            top = {i * 10 for i, v in enumerate(scores) if v == best}
+            self.assertTrue(top & {30, 40, 50, 60})
+            self.assertGreater(best, 0.8)
+            self.assertLess(scores[-1], 0.3)      # the quiet stretch after it
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_flat_chat_scores_low(self):
+        login = f"unittest_flat_{int(time.time())}"
+        path = chat.chat_file(login)
+        start = 1_000_000.0
+        try:
+            with path.open("w") as fh:
+                for s in range(120):
+                    for _ in range(3):
+                        fh.write(json.dumps({"t": start + s, "m": "hello chat"}) + "\n")
+            scores = chat.chat_scores(login, start, 120)
+            self.assertLess(max(scores), 0.3)     # nothing happened: no window looks like a moment
         finally:
             path.unlink(missing_ok=True)
 

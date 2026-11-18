@@ -80,6 +80,23 @@ that moment and 20 seconds after it. The clipper then finds the peak and cuts fr
 0.5 GB per live stream, and saved moments are deleted after a day. A short buffer works even when VODs are
 subscriber-only or deleted.
 
+## What makes the cut
+
+Launch day has hours of menus and calm talking, so the bot is picky:
+* chat has to blow up (about 4x its normal speed, with lots of KEKW / LMAO / clip it / 💀), measured against that
+  channel's own normal, or a viewer made a Twitch clip of the moment;
+* the streamer has to get loud (yelling, laughing), and frozen screens (menus, loading) only pass with a huge reaction;
+* streams where two webcams sit far apart on screen (someone watching another streamer play) are skipped;
+* at most 3 clips per streamer per hour: a better one replaces the weakest one still waiting for review.
+
+**First look:** when a streamer loads into GTA 6 for the first time (their category switches to GTA VI, or their stream
+just started in it), the bot saves their first reaction even without a chat spike, titles it "{streamer}'s first time
+in GTA 6", and posts those first. One per streamer.
+
+**Disk safety:** recording pauses (and you get a ping) when the drive has under 20 GB free (`MIN_FREE_GB`), and
+resumes on its own. Clips nobody reviewed within 48 hours are deleted (`UNREVIEWED_HOURS`). Disk use while running is
+about 0.5 GB per stream being watched, plus ~10-20 MB per clip.
+
 ## How clips look
 
 Each clip is 1080x1920. When the stream has a webcam, the streamer's face goes on top and the gameplay below

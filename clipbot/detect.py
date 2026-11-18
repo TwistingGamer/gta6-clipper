@@ -98,7 +98,7 @@ def pick_windows(seconds: float, window: int, signals: dict[str, list[float] | N
                  max_count: int, min_score: float) -> list[Candidate]:
     if seconds < 10:
         return []
-    weights = {"audio": 0.35, "chat": 0.45, "clips": 0.2}
+    weights = {"audio": 0.3, "chat": 0.4, "clips": 0.3}  # a viewer-made Twitch clip is a strong vote
     mixed = combine(signals, weights)
     order = sorted(range(len(mixed)), key=lambda i: mixed[i], reverse=True)
     chosen: list[Candidate] = []
@@ -149,3 +149,17 @@ def refine(cand: Candidate, seconds: float, audio: np.ndarray | None, chat_ps: n
     if end - start < 10:
         return cand
     return Candidate(float(start), float(end - start), cand.score, cand.signals | {"peak_s": peak})
+
+
+def motion(path: Path, start: float, duration: float, count: int = 8) -> float:
+    """Average change between frames (0-255) across the window: menus and loading screens sit near 0."""
+    frames = []
+    for i in range(count):
+        raw = subprocess.run([FFMPEG, "-v", "error", "-ss", f"{start + duration * (i + 0.5) / count:.2f}", "-i", str(path),
+                              "-frames:v", "1", "-vf", "scale=96:54", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                             capture_output=True).stdout
+        if len(raw) == 96 * 54:
+            frames.append(np.frombuffer(raw, dtype=np.uint8).astype(np.float32))
+    if len(frames) < 2:
+        return 255.0
+    return float(np.mean([np.mean(np.abs(a - b)) for a, b in zip(frames, frames[1:])]))

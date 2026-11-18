@@ -69,7 +69,10 @@ def run_sample(channel: str | None, minutes: float) -> None:
         evidence="private local preview, never posted", inputs=[Input("twitch", login)],
         series="gta6", min_clip_seconds=15, max_clip_seconds=45, title_template=f"{login} in GTA",
     )
-    os.environ.setdefault("MIN_SCORE", "0")
+    # A preview always shows the best of what it recorded, even if it wouldn't pass the viral bar.
+    for k in ("MIN_MOMENT_SCORE", "AUDIO_MIN_PEAK", "STATIC_MOTION"):
+        os.environ[k] = "0"
+    os.environ["MAX_PER_STREAM_HOUR"] = "0"
     os.environ["MAX_CLIPS_PER_SEGMENT"] = "1"
     os.environ["MAX_CLIPS_PER_HOUR"] = "1"
     print("Finding the best moment and making the clip (first run downloads the caption model)...")

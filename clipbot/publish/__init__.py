@@ -285,7 +285,8 @@ def post_due() -> list[tuple[str, str, str]]:
             continue
         # Best campaign first (easiest + biggest payout), then best clip.
         pending = db.unposted_for_platform(platform)
-        pending.sort(key=lambda it: (-(campaigns[it["campaign"]].priority() if it.get("campaign") in campaigns else 0),
+        pending.sort(key=lambda it: (not (isinstance(it.get("reasons"), dict) and it["reasons"].get("first_look")),
+                                     -(campaigns[it["campaign"]].priority() if it.get("campaign") in campaigns else 0),
                                      -(it.get("score") or 0)))
         for item in pending:
             c = campaigns.get(item.get("campaign") or "")
