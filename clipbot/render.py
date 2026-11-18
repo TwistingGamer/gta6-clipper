@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from .config import FFMPEG
+from .config import FFMPEG, FFPROBE, env_int
 from .captions import FONTS_DIR, captions_ass
 from .layout import Layout, video_graph
 
@@ -14,6 +14,25 @@ def filter_path(p: Path) -> str:
     # FFmpeg filter args need escaped Windows drive colons, quotes and brackets.
     return (p.resolve().as_posix().replace("\\", "\\\\").replace(":", "\\:")
             .replace("'", "\\'").replace("[", "\\[").replace("]", "\\]"))
+
+
+def source_fps(path: Path) -> float:
+    try:
+        out = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate",
+                              "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True).stdout.strip()
+        num, den = out.split("/") if "/" in out else (out, "1")
+        return float(num) / float(den or 1)
+    except Exception:
+        return 30.0
+
+
+def video_quality(source: Path) -> list[str]:
+    """Posting copy: source frame rate up to 60, CRF 18 (visually lossless for phones), High profile.
+    Settings: VIDEO_CRF (18), VIDEO_PRESET (medium; 'slow' is a bit sharper but ~2x slower), MAX_FPS (60)."""
+    fps = 60 if source_fps(source) >= 50 and env_int("MAX_FPS", 60) >= 60 else 30
+    return ["-c:v", "libx264", "-preset", os.getenv("VIDEO_PRESET", "medium"), "-crf", os.getenv("VIDEO_CRF", "18"),
+            "-profile:v", "high", "-pix_fmt", "yuv420p", "-maxrate", "20M", "-bufsize", "40M",
+            "-r", str(fps), "-g", str(fps * 2)]
 
 
 def watermark_image() -> Path | None:
@@ -46,8 +65,8 @@ def render(source: Path, start: float, duration: float, dest: Path,
         subprocess.run(
             [FFMPEG, "-y", "-v", "error", *inputs, "-t", str(duration),
              "-filter_complex", graph, "-map", f"[{last}]", "-map", "0:a?",
-             "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
-             "-r", "30", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart", str(dest)],
+             *video_quality(source), "-c:a", "aac", "-b:a", os.getenv("AUDIO_BITRATE", "192k"), "-ar", "48000",
+             "-movflags", "+faststart", str(dest)],
             check=True,
         )
     finally:

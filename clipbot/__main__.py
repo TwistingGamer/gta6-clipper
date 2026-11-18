@@ -391,7 +391,7 @@ def cmd_campaigns():
           + ", ".join(f"{p}={mode(p)}" for p in ("tiktok", "instagram", "youtube")))
 
 
-def cmd_approve(clip_id: str, streamer_ok: bool):
+def cmd_approve(clip_id: str, streamer_ok: bool, learn_it: bool = True):
     item = db.get_clip(clip_id)
     if not item:
         raise SystemExit(f"No clip {clip_id}")
@@ -402,6 +402,9 @@ def cmd_approve(clip_id: str, streamer_ok: bool):
     else:
         db.set_status(clip_id, "approved")
         print(f"{clip_id}: approved; it goes out in the next free posting slot")
+    if learn_it:  # bulk approvals (--all / --top) aren't a judgment on each clip, so they don't teach
+        from . import learn
+        learn.record(item, True)
 
 
 def cmd_report(days: int):
@@ -522,6 +525,8 @@ def main():
     an.add_argument("--what", default="STARTS GTA 6 LIVE"); an.add_argument("--when2", default="")
     an.add_argument("--where", default=""); an.add_argument("--tags", default="#GTA6")
     an.add_argument("--caption", default=""); an.add_argument("--seconds", type=float, default=8)
+    st = sp.add_parser("stats", help="what the bot learned from your approvals/rejections")
+    st.add_argument("--reset", action="store_true")
     sp.add_parser("cleanup", help="delete every unapproved and sample clip and leftover recordings now")
     fin = sp.add_parser("done", help="mark a clip finished and delete its video files"); fin.add_argument("clip_id")
     args = ap.parse_args()
@@ -552,7 +557,7 @@ def main():
             if args.top:
                 rows = rows[:args.top]
             for r in rows:
-                cmd_approve(r["id"], args.streamer_approved)
+                cmd_approve(r["id"], args.streamer_approved, learn_it=False)
             print(f"{len(rows)} clip(s) handled." if rows else "Nothing waiting for review.")
         elif args.clip_id:
             cmd_approve(args.clip_id, args.streamer_approved)
@@ -566,9 +571,11 @@ def main():
         if cap > 6:
             print("Heads up: brand-new accounts posting more than ~6 a day often get throttled or flagged as spam.")
     elif args.cmd == "reject":
-        db.set_status(args.clip_id, "rejected")
+        from . import learn
         from .publish import delete_clip_files
         item = db.get_clip(args.clip_id)
+        learn.record(item, False)
+        db.set_status(args.clip_id, "rejected")
         gone = delete_clip_files(item) if item else 0
         print(f"{args.clip_id}: rejected" + (", video files deleted" if gone else ""))
     elif args.cmd == "post":
@@ -581,6 +588,12 @@ def main():
         print(f"Card ready: {r['output']}\n\nCaption:\n{r['description']}\n\n"
               f"Watch it, then: python -m clipbot approve {r['id']}\n"
               f"and post it now: python -m clipbot post {r['id']} tiktok   (also instagram, youtube, x)")
+    elif args.cmd == "stats":
+        from . import learn
+        if args.reset:
+            learn.reset()
+            print("Forgot all decisions.")
+        print(learn.report())
     elif args.cmd == "cleanup":
         cmd_cleanup()
     elif args.cmd == "done":

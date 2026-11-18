@@ -207,7 +207,9 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
 
     # Long videos (full VODs) get more clips than a 5-minute live segment.
     max_out = max(env_int("MAX_CLIPS_PER_SEGMENT", 2), math.ceil(seconds / 3600 * env_int("MAX_CLIPS_PER_HOUR", 3)))
-    candidates = detect.pick_windows(seconds, window, signals, max_out * 2, env_float("MIN_MOMENT_SCORE", 0.35))
+    from . import learn  # weights and per-streamer bar learned from your ✅ / ❌
+    bar = env_float("MIN_MOMENT_SCORE", 0.35) + (learn.streamer_offset(login or "") if env_float("MIN_MOMENT_SCORE", 0.35) > 0 else 0)
+    candidates = detect.pick_windows(seconds, window, signals, max_out * 2, bar, learn.weights())
     LOG.info("[%s] %s: %d candidates (signals: %s)", c.id, path.name, len(candidates),
              ", ".join(k for k, v in signals.items() if v))
 

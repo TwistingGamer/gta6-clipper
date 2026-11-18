@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 import requests
 
-from . import db
+from . import db, learn
 from .config import DATA, FFMPEG, FFPROBE, TMP, env_bool
 from .notify import max_upload_bytes, notify
 
@@ -118,12 +118,14 @@ def check_reactions() -> int:
         try:
             if _reacted(channel, message, REJECT):
                 db.set_status(clip_id, "rejected")
+                learn.record(item, False)
                 delete_clip_files(item)
                 notify(f"{REJECT} `{clip_id}` rejected and deleted.")
             elif _reacted(channel, message, APPROVE):
                 c = load_campaigns().get(item.get("campaign") or "")
                 status = "awaiting_streamer" if c and c.clip_preapproval else "approved"
                 db.set_status(clip_id, status)
+                learn.record(item, True)
                 notify(f"{APPROVE} `{clip_id}` approved" + (": the campaign must OK it first." if status != "approved"
                                                            else ": it goes out in the next free posting slot."))
             else:

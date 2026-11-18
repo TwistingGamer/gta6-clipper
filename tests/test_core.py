@@ -221,6 +221,30 @@ class CapTest(unittest.TestCase):
         self.assertTrue(all("kai" in t for t in titles))
 
 
+class LearnTest(unittest.TestCase):
+    def test_learns_from_decisions(self):
+        import os
+        from clipbot import db, learn
+        with tempfile.TemporaryDirectory() as d:
+            orig = db.DB
+            db.DB = Path(d) / "t.db"
+            try:
+                db.init_db()
+                for i in range(12):
+                    good = i % 2 == 0
+                    item = {"id": f"c{i}", "streamer": "loud" if good else "dull", "campaign": "gta-any", "status": "pending_review",
+                            "score": 0.8 if good else 0.4,
+                            "reasons": {"signals": {"chat": 0.9 if good else 0.2, "audio": 0.5, "clips": 0.0}, "peak": 9 if good else 3}}
+                    learn.record(item, good)
+                w = learn.weights()
+                self.assertGreater(w["chat"], learn.BASE_WEIGHTS["chat"])   # chat separated good from bad
+                self.assertGreater(learn.streamer_offset("dull"), 0)
+                self.assertLess(learn.streamer_offset("loud"), 0)
+                self.assertIn("approved", learn.report())
+            finally:
+                db.DB = orig
+
+
 class ChatTest(unittest.TestCase):
     def test_spike_detected(self):
         login = f"unittest_{int(time.time())}"

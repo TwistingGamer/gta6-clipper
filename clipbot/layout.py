@@ -175,13 +175,14 @@ def video_graph(layout: Layout) -> str:
     if layout.mode == "fit":
         return ("[0:v]split=2[back][front];"
                 "[back]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=8:3,scale=1080:1920[bg];"
-                "[front]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
+                "[front]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos[fg];"
                 "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v0]")
     if layout.mode == "fill":
-        return f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0]"
+        return f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},setsar=1[v0]"
     x, y, w, h = layout.cam
     # Gameplay: centre of the frame at the lower band's shape, full height.
     return (f"[0:v]split=2[c][g];"
-            f"[c]crop={w}:{h}:{x}:{y},scale={W}:{CAM_H},setsar=1[cam];"
-            f"[g]scale=-2:{GAME_H}:force_original_aspect_ratio=increase,crop={W}:{GAME_H},setsar=1[game];"
+            # lanczos + a light sharpen: the webcam crop is upscaled ~3x and goes soft otherwise
+            f"[c]crop={w}:{h}:{x}:{y},scale={W}:{CAM_H}:flags=lanczos,unsharp=5:5:0.6:5:5:0.0,setsar=1[cam];"
+            f"[g]scale=-2:{GAME_H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{GAME_H},setsar=1[game];"
             f"[cam][game]vstack=inputs=2[v0]")

@@ -95,10 +95,10 @@ def combine(signals: dict[str, list[float] | None], weights: dict[str, float]) -
 
 
 def pick_windows(seconds: float, window: int, signals: dict[str, list[float] | None],
-                 max_count: int, min_score: float) -> list[Candidate]:
+                 max_count: int, min_score: float, weights: dict[str, float] | None = None) -> list[Candidate]:
     if seconds < 10:
         return []
-    weights = {"audio": 0.3, "chat": 0.4, "clips": 0.3}  # a viewer-made Twitch clip is a strong vote
+    weights = weights or {"audio": 0.3, "chat": 0.4, "clips": 0.3}  # a viewer-made Twitch clip is a strong vote
     mixed = combine(signals, weights)
     order = sorted(range(len(mixed)), key=lambda i: mixed[i], reverse=True)
     chosen: list[Candidate] = []

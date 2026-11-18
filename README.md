@@ -93,6 +93,18 @@ and save. To approve or reject by reacting ✅ / ❌ on that message:
    `.env` as `DISCORD_USER_ID=`. Only your reactions count.
 4. Restart the bot. Reactions are picked up within a minute.
 
+## It learns from your ✅ / ❌
+
+Each approve/reject (Discord reaction or command; bulk `--all` / `--top` don't count) is logged with the clip's
+chat, audio and viewer-clip signals, how loud it got, its kind and streamer. After 10 decisions the signals that
+separate your ✅ from your ❌ get more say in picking moments (within ±50%), and streamers whose clips you mostly reject
+need a stronger moment. `python -m clipbot stats` shows the numbers; `stats --reset` forgets them.
+
+## Video quality
+
+Clips are rendered at 1080x1920, 60 fps when the stream is 60 fps, CRF 18 (High profile, up to 20 Mbps) with 192k audio,
+from the best stream quality. That's about 25-50 MB per 35-second clip; Discord previews stay under 10 MB.
+
 ## Clip file names
 
 `2026-11-18_0442_typicalgamer_first-look_police-chase_score87_<ID>.mp4`: local time of the moment, streamer, kind
