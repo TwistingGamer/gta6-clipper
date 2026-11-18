@@ -125,4 +125,6 @@ def run_announce(who: str, when: str, what: str, when2: str, where: str, tags: s
         "description": description, "hashtags": hashtags, "hook": "", "start_s": 0, "duration_s": seconds,
         "ad_disclosure": 0, "reasons": {"announce": True, "submit_to": [cid]},
     })
+    from .phone import announce_new_clip
+    announce_new_clip(db.get_clip(clip_id))
     return {"id": clip_id, "output": str(out), "title": title, "description": description}

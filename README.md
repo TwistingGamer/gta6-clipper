@@ -80,6 +80,19 @@ that moment and 20 seconds after it. The clipper then finds the peak and cuts fr
 0.5 GB per live stream, and saved moments are deleted after a day. A short buffer works even when VODs are
 subscriber-only or deleted.
 
+## Review from your phone
+
+Every new clip is sent to your Discord channel (`NOTIFY_WEBHOOK_URL`) with a 720p copy under 10 MB that you can watch
+and save. To approve or reject by reacting ✅ / ❌ on that message:
+
+1. https://discord.com/developers/applications > **New Application** > **Bot** > **Reset Token** > copy it into
+   `.env` as `DISCORD_BOT_TOKEN=`.
+2. **OAuth2 > URL Generator**: scope `bot`, permissions *View Channels* + *Read Message History*. Open the link and add
+   the bot to your server.
+3. Discord settings > Advanced > **Developer Mode** on. Right-click (long-press) your own name > **Copy User ID** >
+   `.env` as `DISCORD_USER_ID=`. Only your reactions count.
+4. Restart the bot. Reactions are picked up within a minute.
+
 ## Clip file names
 
 `2026-11-18_0442_typicalgamer_first-look_police-chase_score87_<ID>.mp4`: local time of the moment, streamer, kind

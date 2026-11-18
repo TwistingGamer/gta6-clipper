@@ -363,6 +363,9 @@ def daemon():
             made = scan_all(watcher.twitch if watcher.twitch.configured else None)
             if made:
                 LOG.info("%d new clip(s) waiting for review", made)
+            from .phone import check_reactions
+            if check_reactions():
+                LOG.info("applied approve/reject reactions from Discord")
             for clip_id, platform, result in post_due():
                 LOG.info("%s -> %s: %s", clip_id, platform, result)
         except Exception:

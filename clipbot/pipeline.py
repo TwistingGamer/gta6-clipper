@@ -327,6 +327,11 @@ def _make_clips(path: Path, c: Campaign, stat, twitch) -> int:
         })
         if is_first:
             mark_first_look(login, sig)
+        try:
+            from .phone import announce_new_clip
+            announce_new_clip(db.get_clip(sig))
+        except Exception as exc:
+            LOG.warning("new-clip ping failed: %s", exc)
         LOG.info("[%s] clip ready for review: %s \"%s\"", c.id, sig, title)
         made += 1
     return made

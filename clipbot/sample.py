@@ -74,6 +74,7 @@ def run_sample(channel: str | None, minutes: float) -> None:
     for k in ("MIN_MOMENT_SCORE", "AUDIO_MIN_PEAK", "STATIC_MOTION"):
         os.environ[k] = "0"
     os.environ["MAX_PER_STREAM_HOUR"] = "0"
+    os.environ["NOTIFY_NEW_CLIPS"] = "false"   # previews aren't sent to Discord
     os.environ["MAX_CLIPS_PER_SEGMENT"] = "1"
     os.environ["MAX_CLIPS_PER_HOUR"] = "1"
     print("Finding the best moment and making the clip (first run downloads the caption model)...")

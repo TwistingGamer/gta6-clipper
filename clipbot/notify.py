@@ -16,25 +16,35 @@ def _url() -> str:
     return os.getenv("NOTIFY_WEBHOOK_URL", "")
 
 
-def notify(text: str, file: Path | None = None):
+def max_upload_bytes() -> int:
+    return int(float(os.getenv("NOTIFY_MAX_MB", "10")) * 1024 * 1024)
+
+
+def notify(text: str, file: Path | None = None) -> dict | None:
     """One message. With `file`, the video is attached when it fits Discord's upload limit
-    (NOTIFY_MAX_MB, default 10 MB for servers without boosts)."""
+    (NOTIFY_MAX_MB, default 10 MB for servers without boosts). Returns the posted message (id, channel_id)."""
     url = _url()
     if not url:
         LOG.info("NOTIFY: %s", text)
-        return
+        return None
+    sep = "&" if "?" in url else "?"
     try:
-        if file and file.is_file() and file.stat().st_size <= float(os.getenv("NOTIFY_MAX_MB", "10")) * 1024 * 1024:
+        if file and file.is_file() and file.stat().st_size <= max_upload_bytes():
             with file.open("rb") as fh:
-                r = requests.post(url, data={"payload_json": json.dumps({"content": text[:LIMIT]})},
-                                  files={"files[0]": (file.name, fh, "video/mp4")}, timeout=120)
+                r = requests.post(f"{url}{sep}wait=true", data={"payload_json": json.dumps({"content": text[:LIMIT]})},
+                                  files={"files[0]": (file.name, fh, "video/mp4")}, timeout=180)
         else:
             if file and file.is_file():
                 text += f"\n(video too big to attach: {file.stat().st_size / 1e6:.0f} MB, it's in {file.parent})"
-            r = requests.post(url, json={"content": text[:LIMIT]}, timeout=15)
+            r = requests.post(f"{url}{sep}wait=true", json={"content": text[:LIMIT]}, timeout=15)
         r.raise_for_status()
+        try:
+            return r.json()
+        except ValueError:
+            return None
     except Exception as exc:
         LOG.warning("Notification failed: %s", exc)
+        return None
 
 
 def notify_copy(text: str):
