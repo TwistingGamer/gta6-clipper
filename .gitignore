@@ -1,0 +1,9 @@
+.env
+client_secrets.json
+data/
+recordings/*
+output/*
+queue/*
+__pycache__/
+*.pyc
+.venv/
