@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .. import db
 from ..config import OUTPUT, env_bool, env_int, env_list
-from ..notify import notify
+from ..notify import notify, notify_copy
 from ..sources import load_campaigns
 
 import os
@@ -139,24 +139,48 @@ def _submit_note(c, item: dict | None = None, platform: str | None = None) -> st
     return f"Submit the link to {where} on the campaign dashboard."
 
 
+def captions_for(item: dict, platform: str) -> dict[str, str]:
+    """What to paste on each platform: {label: text}. Hashtags are already in the description."""
+    title, desc = item["title"], item["description"]
+    tags = " ".join(item.get("hashtags") or [])
+    if platform == "youtube":
+        # Shorts: the title is its own field (100 chars max); #Shorts helps it land in the Shorts feed.
+        return {"TITLE": title[:100], "DESCRIPTION": desc + ("" if "#shorts" in desc.lower() else " #Shorts")}
+    if platform == "x":
+        # X posts are capped at 280 characters: title + the hashtags that fit.
+        out = title
+        for t in tags.split():
+            if len(out) + 1 + len(t) <= 280:
+                out += " " + t
+        return {"POST": out}
+    core = title.removesuffix(" #ad").strip()
+    body = desc if core and core in desc[:200] else f"{title}\n\n{desc}"  # no title twice
+    return {"CAPTION": body[:2200]}
+
+
 def stage_manual(item: dict, platform: str, c) -> Path:
     dest_dir = READY / platform
     dest_dir.mkdir(parents=True, exist_ok=True)
     video = dest_dir / f"{c.id}_{item['id']}.mp4"
     shutil.copy2(item["output"], video)
-    caption = f"{item['title']}\n\n{item['description']}"
-    if platform == "x":
-        # X posts are capped at 280 characters: title + required tags only.
-        caption = f"{item['title']} {' '.join(item.get('hashtags', []))}".strip()[:280]
+    texts = captions_for(item, platform)
     video.with_suffix(".txt").write_text(
-        f"PLATFORM: {platform}\nCAMPAIGN: {c.display}\n\nTITLE:\n{item['title']}\n\n"
-        f"CAPTION / DESCRIPTION:\n{item['description'] if platform == 'youtube' else caption}\n\n"
-        f"AFTER POSTING: python -m clipbot posted {item['id']} {platform} <link>\n"
+        f"PLATFORM: {platform}\nCAMPAIGN: {c.display}\n\n"
+        + "".join(f"{label}:\n{text}\n\n" for label, text in texts.items())
+        + f"AFTER POSTING: python -m clipbot posted {item['id']} {platform} <link>\n"
         + (f"BIO LINK REQUIRED: {c.bio_link}\n" if c.bio_link else ""),
         encoding="utf-8",
     )
     db.record_post(item["id"], platform, "staged")
-    notify(f"📲 Ready to post on **{platform}** ({c.display}): `{video.name}`\n{item['title']}\n{_submit_note(c, item, platform)}")
+    # Ping: the video, then each caption as its own message so it copies cleanly on a phone.
+    ad = "\n⚠️ Turn on the paid-partnership / branded-content label." if item.get("ad_disclosure") else ""
+    bio = f"\n🔗 Bio link must be: {c.bio_link}" if c.bio_link else ""
+    notify(f"📲 **{platform.upper()}** ({c.display}) `{video.name}`{ad}{bio}\n{_submit_note(c, item, platform)}\n"
+           f"After posting: `python -m clipbot posted {item['id']} {platform} LINK`", file=video)
+    for label, text in texts.items():
+        if len(texts) > 1:
+            notify(f"⬇️ {platform} {label.lower()}")
+        notify_copy(text)
     return video
 
 
