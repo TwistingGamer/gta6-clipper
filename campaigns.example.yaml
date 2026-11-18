@@ -24,57 +24,186 @@ defaults: &defaults
   min_clip_seconds: 15
   max_clip_seconds: 60
 
-campaigns:
-  # ===================== GTA 6 (launch 2026-11-19) — your main focus =====================
-  # One GTA clips account per platform covers all of these. Fill in the rules-page link and
-  # flip active: true for each campaign once you've joined it. game_filter makes the bot
-  # record only while the stream category is GTA.
+gta_campaign: &gta_campaign
+  active: false
+  game_filter: grand theft auto
+  allow_recording: true
+  platforms: [tiktok, instagram, youtube]
+  ai_text_allowed: false          # Reach: assume AI-generated content is banned
+  ad_disclosure: true             # "#ad" on screen at the start + in caption (campaign posts need it)
+  require_review: true            # one strike = banned from every Reach campaign
+  post_hours: "10-23"
+  submit_within_minutes: 30
+  min_clip_seconds: 15
+  max_clip_seconds: 60
+  series: gta6
 
+gta_tolerated: &gta_tolerated
+  active: false
+  permission: {type: tolerated, evidence: ""}
+  game_filter: grand theft auto
+  allow_recording: true
+  platforms: [tiktok, instagram, youtube]
+  ai_text_allowed: true
+  require_review: true
+  min_clip_seconds: 15
+  max_clip_seconds: 60
+  series: gta6
+
+campaigns:
+  # ===================== GTA 6 (launch 2026-11-19): your main focus =====================
+  # From the streamer research of 2026-11-18. No streamer publishes a written clipping policy;
+  # paid campaigns are the safe way in. Full rules unlock when you join on Content Rewards:
+  # read each brief, then: python -m clipbot enable <id> --joined YYYY-MM-DD
+  # Reach campaigns: assume AI-generated content is banned, add an ad disclosure, credit the streamer.
+  # Avoid isolated GTA 6 story cutscenes/endings (Rockstar removes them): gameplay + reactions only.
+
+  # ---- Tier 1: paid campaigns ----
   - id: kai-cenat-gta
-    name: Kai Cenat (GTA)
-    <<: *defaults
-    permission: {type: campaign, evidence: ""}   # TODO: Content Rewards campaign link once joined
+    name: Kai Cenat $10K (Reach)
+    <<: *gta_campaign
+    permission: {type: campaign, evidence: "https://contentrewards.com/c/campaigns/44a3ffcb-d4a1-492b-94a4-704919950246"}
     inputs:
       - {type: twitch, target: kaicenat}
-    game_filter: grand theft auto
-    allow_recording: true          # CHECK campaign rules: live stream as source
-    platforms: [tiktok, instagram, youtube]
-    series: gta6
+    title_template: "Kai Cenat in GTA 6"
+    required_hashtags: ["#KaiCenat", "#GTA6"]
+    budget: {total: 10000}
+    notes: "Pool by views. Rules: https://reachclipping.com/KaiCenat (read for required tags). Full playthrough from Nov 18 8 PM ET."
 
-  - id: lacy-gta                   # CORE clips can also be submitted here if they meet these rules too
-    name: Lacy (GTA)
-    <<: *defaults
-    permission: {type: campaign, evidence: ""}   # TODO
+  - id: lacy-gta
+    name: Lacy $25K 30-day (Reach)
+    <<: *gta_campaign
+    permission: {type: campaign, evidence: "https://contentrewards.com/c/campaigns/4479e5e2-9a00-489e-8b0c-345834f37cc7"}
     inputs:
-      - {type: twitch, target: lacy}             # CHECK login
-    game_filter: grand theft auto
-    allow_recording: true
-    platforms: [tiktok, instagram, youtube]
-    series: gta6
+      - {type: twitch, target: lacy}
+    title_template: "Lacy in GTA 6"
+    required_hashtags: ["#Lacy", "#GTA6"]
+    budget: {total: 25000}
+    notes: >-
+      Rules: https://reachclipping.com/Lacy. Also look for the "LACY GTA VI Marathon Pool" ($12.5K, 1M MVR)
+      on contentrewards.com/c/discover and the X-only campaign (lacy-x). CORE clips can be submitted here too.
+
+  - id: lacy-x
+    name: Lacy $5K X-only (Reach)
+    <<: *gta_campaign
+    permission: {type: campaign, evidence: "https://contentrewards.com/c/campaigns/20b7c977-8d0c-4bd0-b9b0-2db9200f405b"}
+    inputs:
+      - {type: twitch, target: lacy}
+    platforms: [x]
+    title_template: "Lacy in GTA 6"
+    required_hashtags: ["#Lacy", "#GTA6"]
+    budget: {total: 5000}
 
   - id: clix-gta
-    name: Clix (GTA)
-    <<: *defaults
-    permission: {type: campaign, evidence: ""}   # TODO
+    name: Clix $5K (Reach)
+    <<: *gta_campaign
+    permission: {type: campaign, evidence: "https://contentrewards.com/c/campaigns/7a6a234b-1e9e-4da3-a600-54cc3142e710"}
     inputs:
       - {type: twitch, target: clix}
-    game_filter: grand theft auto
-    allow_recording: true
-    ai_text_allowed: false         # campaign bans AI videos: plain template text only
     title_template: "Clix in GTA 6"
-    platforms: [tiktok, instagram, youtube]
-    series: gta6
+    required_hashtags: ["#Clix", "#GTA6"]
+    budget: {total: 5000}
+    notes: >-
+      Brief: "AI-generated videos are not allowed". Ask in Reach Discord that auto-cut stream clips are OK.
+      Also look for the "Clix GTA VI Marathon Pool" ($5K, 400K MVR). 24/7 GTA 6 marathon from Nov 19.
 
   - id: jason
-    name: Jason
-    <<: *defaults
-    permission: {type: campaign, evidence: ""}   # TODO: paste the rules page URL
+    name: JasonTheWeen (CORE pool)
+    <<: *gta_campaign
+    permission: {type: campaign, evidence: ""}   # TODO: link from Content Rewards once joined ($9K pool)
     inputs:
       - {type: twitch, target: jasontheween}
-    game_filter: grand theft auto
-    allow_recording: true          # CHECK on rules page
-    platforms: [tiktok, instagram, youtube]
-    series: gta6
+    title_template: "Jason in GTA 6"
+    required_hashtags: ["#JasonTheWeen", "#GTA6"]
+
+  - id: lysium
+    name: Lysium / Benji Ramos (GTA RP)
+    <<: *gta_campaign
+    permission: {type: campaign, evidence: "https://contentrewards.com/discover/6d896f33-152f-42a9-92f4-662199228349"}
+    inputs:
+      - {type: twitch, target: lysium}           # CHECK login
+    game_filter: ""                              # GTA RP (NoPixel): category varies
+    platforms: [tiktok, instagram, youtube, x]
+    payout: {cpm: 1.5, min: 15, max: 150}
+    clip_preapproval: true                       # every clip needs their OK before posting
+    bio_link: https://twitch.tv/Lysium
+    title_template: "Benji Ramos in GTA RP"
+    content_rule: "Give context; no drama bait."
+
+  - id: dasgasd3m-gta
+    name: Dasgasd3m GTA VI (Ruckus)
+    <<: *gta_campaign
+    permission: {type: campaign, evidence: "https://whop.com/gta6clipping/"}
+    inputs:
+      - {type: twitch, target: dasgasd3m}        # CHECK platform/login
+    platforms: [tiktok, youtube]
+    payout: {cpm: 1.0, min: 10, max: 100}
+    budget: {total: 1000}
+    title_template: "Dom in GTA 6"
+    notes: "Opens Nov 19. #ad required in caption AND on screen."
+
+  - id: tomo-gta
+    name: TOMO GTA VI (Clipping Nation)
+    <<: *gta_campaign
+    permission: {type: campaign, evidence: ""}   # TODO: link once joined (opened Nov 17)
+    inputs:
+      - {type: twitch, target: tomo}             # CHECK platform/login
+    payout: {cpm: 2.0, min: 4, max: 150}
+    budget: {total: 1000}
+    title_template: "TOMO in GTA 6"
+
+  # ---- Tier 2: tolerated, NO campaign (no payout from them; own-channel revenue only) ----
+  # Clips of these are widely reposted with no known takedowns, but that's not permission.
+  # Enabling one is your call: python -m clipbot enable <id> --evidence "tolerated: my decision"
+  - id: xqc-gta
+    name: xQc (tolerated)
+    <<: *gta_tolerated
+    inputs:
+      - {type: kick, target: xqc}
+      - {type: twitch, target: xqc}
+    title_template: "xQc in GTA 6"
+    required_hashtags: ["#xQc", "#GTA6"]
+
+  - id: ludwig-gta
+    name: Ludwig (tolerated)
+    <<: *gta_tolerated
+    inputs:
+      - {type: youtube_live, target: "@ludwig"}
+    title_template: "Ludwig in GTA 6"
+    required_hashtags: ["#Ludwig", "#GTA6"]
+
+  - id: gta-rp
+    name: GTA RP channels (tolerated)
+    <<: *gta_tolerated
+    inputs:
+      - {type: twitch, target: buddha}
+      - {type: kick, target: lordkebun}
+      - {type: twitch, target: dasmehdi}
+      - {type: twitch, target: penta}
+    game_filter: ""
+    title_template: "GTA RP moment"
+    required_hashtags: ["#GTARP"]
+
+  - id: jynxzi-gta
+    name: Jynxzi (tolerated)
+    <<: *gta_tolerated
+    inputs:
+      - {type: twitch, target: jynxzi}
+    title_template: "Jynxzi in GTA 6"
+    required_hashtags: ["#Jynxzi", "#GTA6"]
+
+  # ---- Caution ----
+  - id: ishowspeed-gta
+    name: IShowSpeed (tolerated, NOT on YouTube)
+    <<: *gta_tolerated
+    inputs:
+      - {type: youtube_live, target: "@IShowSpeed"}
+    platforms: [tiktok, instagram]   # his team filed Content ID claims on YouTube clip channels before
+    title_template: "Speed in GTA 6"
+    required_hashtags: ["#IShowSpeed", "#GTA6"]
+
+  # Adin Ross / N3on / DDG (Kick): private programs via their Discords; Adin Ross DMCA-struck a
+  # YouTuber in 2023. Not added. Ask to join N3on's program if you want them.
 
   # ===================== Other campaigns (not GTA niche) =====================
   # Rules read 2026-11-18 (pasted from reachclipping.com/CORE).
@@ -94,12 +223,14 @@ campaigns:
       - {name: Jason, hashtag: "#JasonTheWeen", logins: [jasontheween]}
       - {name: Stable Ronaldo, hashtag: "#StableRonaldo", logins: [stableronaldo]}
       - {name: Silky, hashtag: "#Silky", logins: [silky]}
+      - {name: Marlon, hashtag: "#Marlon", logins: [marlon]}
     min_members: 2
     inputs:
       - {type: twitch, target: lacy}
       - {type: twitch, target: jasontheween}
       - {type: twitch, target: stableronaldo}
       - {type: twitch, target: silky}
+      - {type: twitch, target: marlon}
       # CORE's TikTok/Instagram/X posts are also allowed sources: save them in this folder by hand.
       - {type: folder, target: "recordings/core-pool/manual"}
     game_filter: grand theft auto  # your page is GTA, so only record their GTA streams
@@ -113,9 +244,10 @@ campaigns:
     require_review: true           # one strike = banned from every Reach campaign
     post_hours: "10-23"            # submit each link within 30 min of posting, so post while awake
     submit_within_minutes: 30
-    also_submit_to: [lacy-gta, jason]   # same clip can also be submitted to Lacy + JasonTheWeen campaigns
+    also_submit_to: [lacy-gta, lacy-x, jason]   # same clip can also be submitted to Lacy + JasonTheWeen campaigns
+    ad_disclosure: true            # campaign posts need an ad disclosure at the start (text, not a logo)
     content_rule: >-
-      At least 2 CORE members (Lacy, Jason, Stable Ronaldo, Silky) must clearly appear or talk together.
+      At least 2 CORE members (Lacy, Jason, Stable Ronaldo, Silky, Marlon) must clearly appear or talk together.
       Funny moments, reactions, interactions, banter. Never portray CORE negatively, no false narratives,
       no hate farming. English only.
     budget: {total: 20000}

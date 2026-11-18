@@ -20,7 +20,7 @@ import yaml
 
 from .config import RECORDINGS, ROOT, SOURCES_FILE
 
-PERMISSION_TYPES = ("campaign", "written", "own")
+PERMISSION_TYPES = ("campaign", "written", "own", "tolerated")  # tolerated = no permission; your own risk call
 LIVE_TYPES = ("twitch", "kick", "youtube_live")
 INPUT_TYPES = LIVE_TYPES + ("youtube_video", "youtube_channel", "folder")
 POST_PLATFORMS = ("youtube", "tiktok", "instagram", "x")

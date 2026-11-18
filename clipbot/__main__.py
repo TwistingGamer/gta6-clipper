@@ -223,6 +223,9 @@ def cmd_enable(cid: str, joined: str | None, evidence: str | None, on: bool = Tr
             perm["evidence"] = evidence
     write_settings(settings)
     c = load_campaigns()[cid]
+    if on and c.permission_type == "tolerated":
+        print(f"WARNING: {c.display} has no clipping campaign or written permission. Clips are tolerated today,\n"
+              "  but they can be claimed or struck at any time, and they earn nothing from the streamer.")
     ok, why = c.authorized()
     if on and not ok:
         print(f"{cid}: saved, but NOT active yet: {why}.")
@@ -240,11 +243,12 @@ def cmd_discover():
     for c in load_campaigns().values():
         for i in c.inputs:
             if i.type == "twitch":
-                covered.setdefault(i.login, []).append(c.id + ("" if c.authorized()[0] else " (off)"))
+                tag = "paid" if c.permission_type == "campaign" else c.permission_type
+                covered.setdefault(i.login, []).append(f"{c.id} [{tag}{'' if c.authorized()[0] else ', off'}]")
     print("Biggest live GTA streams (English):")
     for s in tw.top_streams(limit=25):
         login = s["user_login"].lower()
-        where = ", ".join(covered.get(login, [])) or "no campaign: check their clipping rules before clipping"
+        where = ", ".join(covered.get(login, [])) or "not on your list: no known policy, don't clip"
         print(f"  {s['viewer_count']:>7,}  {login:<20} {s['game_name']:<22} {where}")
 
 
